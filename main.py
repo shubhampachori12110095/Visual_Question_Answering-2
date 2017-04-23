@@ -3,7 +3,6 @@ import sys
 import numpy as np
 import sklearn.metrics as metrics
 import word2vec as w2v
-from collections import Counter
 import argparse
 import time
 import json
@@ -16,27 +15,27 @@ from movieqa_importer import MovieQA
 rng = np.random
 rng.seed(1234)
 
-w2v_mqa_model_filename = 'models/movie_plots_1364.d-300.mc1.w2v'
-
 def dmn_start():
     print "==> parsing input arguments"
     parser = argparse.ArgumentParser()
+    parser.add_argument('--story_source', type=str, default="", help='story source text: split_plot | dvs | subtitle | script')
+
     parser.add_argument('--network', type=str, default="dmn_tied", help='embeding size (50, 100, 200, 300 only)')
-    parser.add_argument('--word_vector_size', type=int, default=50, help='embeding size (50, 100, 200, 300 only)')
-    parser.add_argument('--sent_vector_size', type=int, default=80, help='embeding size (50, 100, 200, 300 only)')
+    parser.add_argument('--word_vector_size', type=int, default=300, help='embeding size (50, 100, 200, 300 only)')
+    parser.add_argument('--sent_vector_size', type=int, default=300, help='embeding size (50, 100, 200, 300 only)')
     parser.add_argument('--dim', type=int, default=80, help='number of hidden units in input module GRU')
     parser.add_argument('--epochs', type=int, default=100, help='number of epochs')
     parser.add_argument('--load_state', type=str, default="", help='state file path')
     parser.add_argument('--answer_module', type=str, default="feedforward", help='answer module type: feedforward or recurrent')
 
-    #parser.add_argument('--mode', type=str, default="train", help='mode: train or test. Test mode required load_state')
-    parser.add_argument('--mode', type=str, default="test", help='mode: train or test. Test mode required load_state')
+    parser.add_argument('--mode', type=str, default="train", help='mode: train or test. Test mode required load_state')
+    #parser.add_argument('--mode', type=str, default="test", help='mode: train or test. Test mode required load_state')
 
     parser.add_argument('--input_mask_mode', type=str, default="sentence", help='input_mask_mode: word or sentence')
     parser.add_argument('--memory_hops', type=int, default=3, help='memory GRU steps')
-    parser.add_argument('--batch_size', type=int, default=10, help='no commment')
+    parser.add_argument('--batch_size', type=int, default=1, help='no commment')
 
-    parser.add_argument('--babi_id', type=str, default="1", help='babi task ID')
+    #parser.add_argument('--babi_id', type=str, default="1", help='babi task ID')
     #parser.add_argument('--babi_id', type=str, default="22", help='babi task ID')
 
     #parser.add_argument('--l2', type=float, default=0, help='L2 regularization')
@@ -64,26 +63,35 @@ def dmn_start():
 
 def dmn_mid(args):
     #assert args.word_vector_size in [50, 100, 200, 300]
+    print 'Evaluating Improved Dynamic Memory Networks on MovieQA using: %s' % args.story_source
 
-    network_name = args.prefix + '%s.mh%d.n%d.bs%d%s%s%s.babi%s' % (
+    network_name = args.prefix + '%s.mh%d.n%d.bs%d%s%s%s' % (
         args.network, 
         args.memory_hops, 
         args.dim, 
         args.batch_size, 
         ".na" if args.normalize_attention else "", 
         ".bn" if args.batch_norm else "", 
-        (".d" + str(args.dropout)) if args.dropout>0 else "",
-        args.babi_id)
+        (".d" + str(args.dropout)) if args.dropout>0 else "")
+    
+    # Get list of MAs and movies
+    mqa = MovieQA.DataLoader()
 
-    babi_train_raw, babi_test_raw = utils.get_babi_raw(args.babi_id, args.babi_test_id)
+    ### Process story source
+    stories, QAs = mqa.get_story_qa_data('full', args.story_source)
+    stories = normalize_documents(stories)
+    
+    #babi_train_raw, babi_test_raw = utils.get_babi_raw(args.babi_id, args.babi_test_id)
 
     #word2vec = utils.load_glove(args.word_vector_size)
-    word2vec = {}
+    #word2vec = {}
 
     args_dict = dict(args._get_kwargs())
-    args_dict['babi_train_raw'] = babi_train_raw
-    args_dict['babi_test_raw'] = babi_test_raw
-    args_dict['word2vec'] = word2vec
+    args_dict['stories'] = stories
+    args_dict['QAs'] = QAs
+    #args_dict['babi_train_raw'] = babi_train_raw
+    #args_dict['babi_test_raw'] = babi_test_raw
+    #args_dict['word2vec'] = word2vec
 
     if args.network == 'dmn_tied':
         import dmn_tied
@@ -140,9 +148,9 @@ def do_epoch(mode, epoch, skipped=0):
             # TODO: save the state sometimes
             if (i % args.log_every == 0):
                 cur_time = time.time()
-                #%50 is ther so train/test doesn't take up toom much terminal screen space 
-                if (i % 50) == 0:
-                    print ("  %sing: %d.%d / %d \t loss: %.3f \t avg_loss: %.3f \t skipped: %d \t %s \t time: %.2fs" % 
+                #%50 is ther so train/test doesn't take up too much terminal screen space 
+                #if (i % 50) == 0:
+                print ("  %sing: %d.%d / %d \t loss: %.3f \t avg_loss: %.3f \t skipped: %d \t %s \t time: %.2fs" % 
                         (mode, epoch, i * args.batch_size, batches_per_epoch * args.batch_size, 
                         current_loss, avg_loss / (i + 1), skipped, log, cur_time - prev_time))
                 prev_time = cur_time
@@ -197,6 +205,18 @@ def dmn_finish(args, network_name, dmn):
     else:
         raise Exception("unknown mode")
 
+def normalize_documents(stories, normalize_for=('lower', 'alphanumeric'), max_words=40):
+    """Normalize all stories in the dictionary, get list of words per sentence.
+    """
+
+    for movie in stories.keys():
+        for s, sentence in enumerate(stories[movie]):
+            sentence = sentence.lower()
+            if 'alphanumeric' in normalize_for:
+                sentence = utils.normalize_alphanumeric(sentence)
+            sentence = sentence.split(' ')[:max_words]
+            stories[movie][s] = sentence
+    return stories
 
 if __name__ == "__main__":
     args = dmn_start()

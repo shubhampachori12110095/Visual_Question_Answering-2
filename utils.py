@@ -1,5 +1,9 @@
 import os as os
+import re
 import numpy as np
+
+re_alphanumeric = re.compile('[^a-z0-9 -]+')
+re_multispace = re.compile(' +')
 
 def init_babi(fname):
     print "==> Loading test from %s" % fname
@@ -133,6 +137,13 @@ def process_word(word, word2vec, vocab, ivocab, word_vector_size, to_return="wor
     elif to_return == "onehot":
         raise Exception("to_return = 'onehot' is not implemented yet")
 
+def normalize_alphanumeric(line):
+    """Strip all punctuation, keep only alphanumerics.
+    """
+
+    line = re_alphanumeric.sub('', line)
+    line = re_multispace.sub(' ', line)
+    return line
 
 def get_norm(x):
     x = np.array(x)

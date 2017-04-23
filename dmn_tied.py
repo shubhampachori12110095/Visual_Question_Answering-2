@@ -3,7 +3,10 @@ import os
 import numpy as np
 
 import nltk
-
+import word2vec as w2v
+from collections import Counter
+from sklearn.decomposition import PCA
+import json
 import theano
 import theano.tensor as T
 from theano.compile.nanguardmode import NanGuardMode
@@ -18,21 +21,34 @@ from keras.utils.theano_utils import shared_zeros, alloc_zeros_matrix
 import utils
 import nn_utils
 
+w2v_mqa_model_filename = 'models/movie_plots_1364.d-300.mc1.w2v'
 #theano.config.floatX = 'float32'
 floatX = theano.config.floatX
 
 
 class DMN_tied:
     
-    def __init__(self, babi_train_raw, babi_test_raw, word2vec, word_vector_size, sent_vector_size, 
+    def __init__(self, stories, QAs, word_vector_size, sent_vector_size, 
                 dim, mode, answer_module, input_mask_mode, memory_hops, l2, 
                 normalize_attention, batch_norm, dropout, dropout_in, **kwargs):
 
         print "==> not used params in DMN class:", kwargs.keys()
-        self.vocab = {None: 0}
-        self.ivocab = {0: None}
+        ### Load Word2Vec model
+        w2v_model = w2v.load(w2v_mqa_model_filename, kind='bin')
+        self.w2v = w2v_model
+        self.d_w2v = len(w2v_model.get_vector(w2v_model.vocab[1]))
+        self.word_thresh = 1
+        print "Loaded word2vec model: dim = %d | vocab-size = %d" % (self.d_w2v, len(w2v_model.vocab))
+        ### Create vocabulary-to-index and index-to-vocabulary
+        v2i = {'': 0, 'UNK':1}  # vocabulary to index
+        QA_words, v2i = create_vocabulary(QAs, stories, v2i,
+                                     w2v_vocab=w2v_model.vocab.tolist(),
+                                     word_thresh=self.word_thresh)
+        i2v = {v:k for k,v in v2i.iteritems()}
+        self.vocab = v2i
+        self.ivocab = i2v
         
-        self.word2vec = word2vec
+        self.word2vec = w2v_model
         self.word_vector_size = word_vector_size
         self.sent_vector_size = sent_vector_size
         self.dim = dim
@@ -46,28 +62,113 @@ class DMN_tied:
         self.dropout = dropout
         self.dropout_in = dropout_in
 
-        self.max_inp_sent_len = 0
-        self.max_q_len = 0
+        #self.max_inp_sent_len = 0  
+        #self.max_q_len = 0     
 
         """
         #To Use All Vocab
         self.vocab = {None: 0, 'jason': 134.0, 'office': 14.0, 'yellow': 78.0, 'bedroom': 24.0, 'go': 108.0, 'yes': 15.0, 'antoine': 138.0, 'milk': 139.0, 'before': 46.0, 'grabbed': 128.0, 'fit': 100.0, 'how': 105.0, 'swan': 73.0, 'than': 96.0, 'to': 13.0, 'does': 99.0, 's,e': 110.0, 'east': 102.0, 'rectangle': 82.0, 'gave': 149.0, 'then': 39.0, 'evening': 48.0, 'triangle': 79.0, 'garden': 37.0, 'get': 131.0, 'football,apple,milk': 179.0, 'they': 41.0, 'not': 178.0, 'bigger': 95.0, 'gray': 77.0, 'school': 6.0, 'apple': 142.0, 'did': 127.0, 'morning': 44.0, 'discarded': 146.0, 'julius': 72.0, 'she': 29.0, 'went': 11.0, 'where': 30.0, 'jeff': 152.0, 'square': 84.0, 'who': 153.0, 'tired': 124.0, 'there': 130.0, 'back': 12.0, 'lion': 70.0, 'are': 50.0, 'picked': 143.0, 'e,e': 119.0, 'pajamas': 129.0, 'Mary': 157.0, 'blue': 83.0, 'what': 63.0, 'container': 98.0, 'rhino': 76.0, 'daniel': 31.0, 'bernhard': 67.0, 'milk,football': 172.0, 'above': 80.0, 'got': 136.0, 'emily': 60.0, 'red': 88.0, 'either': 3.0, 'sheep': 58.0, 'football': 137.0, 'jessica': 61.0, 'do': 106.0, 'Bill': 155.0, 'football,apple': 168.0, 'fred': 1.0, 'winona': 59.0, 'objects': 161.0, 'put': 147.0, 'kitchen': 17.0, 'box': 90.0, 'received': 154.0, 'journeyed': 25.0, 'of': 52.0, 'wolf': 62.0, 'afternoon': 47.0, 'or': 7.0, 'south': 112.0, 's,w': 114.0, 'afterwards': 32.0, 'sumit': 123.0, 'color': 75.0, 'julie': 23.0, 'one': 163.0, 'down': 148.0, 'nothing': 167.0, 'n,n': 113.0, 'right': 86.0, 's,s': 116.0, 'gertrude': 54.0, 'bathroom': 26.0, 'from': 109.0, 'west': 104.0, 'chocolates': 91.0, 'two': 165.0, 'frog': 66.0, '.': 9.0, 'cats': 57.0, 'apple,milk,football': 175.0, 'passed': 158.0, 'apple,football,milk': 176.0, 'white': 71.0, 'john': 35.0, 'was': 45.0, 'mary': 10.0, 'apple,football': 170.0, 'north': 103.0, 'n,w': 111.0, 'that': 28.0, 'park': 8.0, 'took': 141.0, 'chocolate': 101.0, 'carrying': 162.0, 'n,e': 120.0, 'mice': 49.0, 'travelled': 22.0, 'he': 33.0, 'none': 164.0, 'bored': 133.0, 'e,n': 117.0, None: 0, 'Jeff': 159.0, 'this': 43.0, 'inside': 93.0, 'bill': 16.0, 'up': 144.0, 'cat': 64.0, 'will': 125.0, 'below': 87.0, 'greg': 74.0, 'three': 166.0, 'suitcase': 97.0, 'following': 36.0, 'e,s': 115.0, 'and': 40.0, 'thirsty': 135.0, 'cinema': 19.0, 'is': 2.0, 'moved': 18.0, 'yann': 132.0, 'sphere': 89.0, 'dropped': 145.0, 'in': 4.0, 'mouse': 56.0, 'football,milk': 171.0, 'pink': 81.0, 'afraid': 51.0, 'no': 20.0, 'Fred': 156.0, 'w,s': 121.0, 'handed': 151.0, 'w,w': 118.0, 'brian': 69.0, 'chest': 94.0, 'w,n': 122.0, 'you': 107.0, 'many': 160.0, 'lily': 65.0, 'hallway': 34.0, 'why': 126.0, 'after': 27.0, 'yesterday': 42.0, 'sandra': 38.0, 'fits': 92.0, 'milk,football,apple': 173.0, 'the': 5.0, 'milk,apple': 169.0, 'a': 55.0, 'give': 150.0, 'longer': 177.0, 'maybe': 21.0, 'hungry': 140.0, 'apple,milk': 174.0, 'green': 68.0, 'wolves': 53.0, 'left': 85.0}
         self.ivocab = {0: None, 1: 'fred', 2: 'is', 3: 'either', 4: 'in', 5: 'the', 6: 'school', 7: 'or', 8: 'park', 9: '.', 10: 'mary', 11: 'went', 12: 'back', 13: 'to', 14: 'office', 15: 'yes', 16: 'bill', 17: 'kitchen', 18: 'moved', 19: 'cinema', 20: 'no', 21: 'maybe', 22: 'travelled', 23: 'julie', 24: 'bedroom', 25: 'journeyed', 26: 'bathroom', 27: 'after', 28: 'that', 29: 'she', 30: 'where', 31: 'daniel', 32: 'afterwards', 33: 'he', 34: 'hallway', 35: 'john', 36: 'following', 37: 'garden', 38: 'sandra', 39: 'then', 40: 'and', 41: 'they', 42: 'yesterday', 43: 'this', 44: 'morning', 45: 'was', 46: 'before', 47: 'afternoon', 48: 'evening', 49: 'mice', 50: 'are', 51: 'afraid', 52: 'of', 53: 'wolves', 54: 'gertrude', 55: 'a', 56: 'mouse', 57: 'cats', 58: 'sheep', 59: 'winona', 60: 'emily', 61: 'jessica', 62: 'wolf', 63: 'what', 64: 'cat', 65: 'lily', 66: 'frog', 67: 'bernhard', 68: 'green', 69: 'brian', 70: 'lion', 71: 'white', 72: 'julius', 73: 'swan', 74: 'greg', 75: 'color', 76: 'rhino', 77: 'gray', 78: 'yellow', 79: 'triangle', 80: 'above', 81: 'pink', 82: 'rectangle', 83: 'blue', 84: 'square', 85: 'left', 86: 'right', 87: 'below', 88: 'red', 89: 'sphere', 90: 'box', 91: 'chocolates', 92: 'fits', 93: 'inside', 94: 'chest', 95: 'bigger', 96: 'than', 97: 'suitcase', 98: 'container', 99: 'does', 100: 'fit', 101: 'chocolate', 102: 'east', 103: 'north', 104: 'west', 105: 'how', 106: 'do', 107: 'you', 108: 'go', 109: 'from', 110: 's,e', 111: 'n,w', 112: 'south', 113: 'n,n', 114: 's,w', 115: 'e,s', 116: 's,s', 117: 'e,n', 118: 'w,w', 119: 'e,e', 120: 'n,e', 121: 'w,s', 122: 'w,n', 123: 'sumit', 124: 'tired', 125: 'will', 126: 'why', 127: 'did', 128: 'grabbed', 129: 'pajamas', 130: 'there', 131: 'get', 132: 'yann', 133: 'bored', 134: 'jason', 135: 'thirsty', 136: 'got', 137: 'football', 138: 'antoine', 139: 'milk', 140: 'hungry', 141: 'took', 142: 'apple', 143: 'picked', 144: 'up', 145: 'dropped', 146: 'discarded', 147: 'put', 148: 'down', 149: 'gave', 150: 'give', 151: 'handed', 152: 'jeff', 153: 'who', 154: 'received', 155: 'Bill', 156: 'Fred', 157: 'Mary', 158: 'passed', 159: 'Jeff', 160: 'many', 161: 'objects', 162: 'carrying', 163: 'one', 164: 'none', 165: 'two', 166: 'three', 167: 'nothing', 168: 'football,apple', 169: 'milk,apple', 170: 'apple,football', 171: 'football,milk', 172: 'milk,football', 173: 'milk,football,apple', 174: 'apple,milk', 175: 'apple,milk,football', 176: 'apple,football,milk', 177: 'longer', 178: 'not', 179: 'football,apple,milk'}
         #"""
+
+        ### Convert QAs and stories into numpy matrices (like in the bAbI data set)
+        # storyM - Dictionary - indexed by imdb_key. Values are [num-sentence X max-num-words]
+        # questionM - NP array - [num-question X max-num-words]
+        # answerM - NP array - [num-question X num-answer-options X max-num-words]
+        storyM, questionM, answerM = data_in_matrix_form(stories, QA_words, v2i)
+        qinfo = associate_additional_QA_info(QAs)
+
+        ### Split everything into train, val, and test data
+        train_storyM = {k:v for k, v in storyM.iteritems() if k in mqa.data_split['train']}
+        val_storyM   = {k:v for k, v in storyM.iteritems() if k in mqa.data_split['val']}
+        test_storyM  = {k:v for k, v in storyM.iteritems() if k in mqa.data_split['test']}
+
+        def split_train_test(long_list, QAs, trnkey='train', tstkey='val'):
+            # Create train/val/test splits based on key
+            train_split = [item for k, item in enumerate(long_list) if QAs[k].qid.startswith('train')]
+            val_split = [item for k, item in enumerate(long_list) if QAs[k].qid.startswith('val')]
+            test_split = [item for k, item in enumerate(long_list) if QAs[k].qid.startswith('test')]
+            if type(long_list) == np.ndarray:
+                return np.array(train_split), np.array(val_split), np.array(test_split)
+            else:
+                return train_split, val_split, test_split
+
+        train_questionM, val_questionM, test_questionM = split_train_test(questionM, QAs)
+        train_answerM,   val_answerM,   test_answerM,  = split_train_test(answerM, QAs)
+        train_qinfo,     val_qinfo,     test_qinfo     = split_train_test(qinfo, QAs)
+
+        QA_train = [qa for qa in QAs if qa.qid.startswith('train:')]
+        QA_val   = [qa for qa in QAs if qa.qid.startswith('val:')]
+        QA_test  = [qa for qa in QAs if qa.qid.startswith('test:')]
+
+        train_data = {'s':train_storyM, 'q':train_questionM, 'a':train_answerM, 'qinfo':train_qinfo}
+        val_data =   {'s':val_storyM,   'q':val_questionM,   'a':val_answerM,   'qinfo':val_qinfo}
+        test_data  = {'s':test_storyM,  'q':test_questionM,  'a':test_answerM,  'qinfo':test_qinfo}
+
+        setup_model_configuration(v2i, storyM.values()[0].shape)
+
+        self.train_input = train_storyM
+        self.train_q = train_questionM
+        self.train_answer = train_answerM
+        self.train_qinfo = train_qinfo
+        self.test_input = val_storyM
+        self.test_q = val_questionM
+        self.test_answer = val_answerM
+        self.test_qinfo = val_qinfo
         
-        self.train_input, self.train_q, self.train_answer, self.train_input_mask = self._process_input(babi_train_raw)
-        self.test_input, self.test_q, self.test_answer, self.test_input_mask = self._process_input(babi_test_raw)
+        """Setup some configuration parts of the model.
+        """
+        self.v2i = v2i
+        self.vs = len(v2i)
+        self.d_lproj = 300
+
+        # define Look-Up-Table mask
+        np_mask = np.vstack((np.zeros(self.d_w2v), np.ones((self.vs - 1, self.d_w2v))))
+        T_mask = theano.shared(np_mask.astype(theano.config.floatX), name='LUT_mask')
+
+        # setup Look-Up-Table to be Word2Vec
+        self.pca_mat = None
+        print "Initialize LUTs as word2vec and use linear projection layer"
+
+        LUT = np.zeros((self.vs, self.d_w2v), dtype='float32')
+        found_words = 0
+        for w, v in self.v2i.iteritems():
+            if w in self.w2v.vocab:  # all valid words are already in vocab or 'UNK'
+                LUT[v] = self.w2v.get_vector(w)
+                found_words += 1
+            else:
+                # LUT[v] = np.zeros((self.d_w2v))
+                LUT[v] = self.rng.randn(self.d_w2v)
+                LUT[v] = LUT[v] / (np.linalg.norm(LUT[v]) + 1e-6)
+
+        print "Found %d / %d words" %(found_words, len(self.v2i))
+
+        # word 0 is blanked out, word 1 is 'UNK'
+        LUT[0] = np.zeros((self.d_w2v))
+
+        # if linear projection layer is not the same shape as LUT, then initialize with PCA
+        if self.d_lproj != LUT.shape[1]:
+            pca = PCA(n_components=self.d_lproj, whiten=True)
+            self.pca_mat = pca.fit_transform(LUT.T)  # 300 x 100?
+
+        # setup LUT!
+        self.T_w2v = theano.shared(LUT.astype(theano.config.floatX))
+
+        self.train_input_mask = T_mask
+        self.test_input_mask = T_mask
+        #self.train_input, self.train_q, self.train_answer, self.train_input_mask = self._process_input(babi_train_raw)
+        #self.test_input, self.test_q, self.test_answer, self.test_input_mask = self._process_input(babi_test_raw)
         self.vocab_size = len(self.vocab)
 
         self.input_var = T.imatrix('input_var')
         self.q_var = T.ivector('question_var')
-        self.answer_var = T.iscalar('answer_var')
-        self.input_mask_var = T.ivector('input_mask_var')
-        
+        self.answer_var = T.imatrix('answer_var')
+        self.input_mask_var = T.imatrix('input_mask_var')
+        self.target = T.iscalar('target')
         self.attentions = []
 
-        self.pe_matrix_in = self.pe_matrix(self.max_inp_sent_len)
-        self.pe_matrix_q = self.pe_matrix(self.max_q_len)
+        #self.pe_matrix_in = self.pe_matrix(self.max_inp_sent_len)
+        #self.pe_matrix_q = self.pe_matrix(self.max_q_len)
 
             
         print "==> building input module"
@@ -103,16 +204,17 @@ class DMN_tied:
         #self.V_f = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
         #self.V_b = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
 
-        self.inp_sent_reps, _ = theano.scan(
-                                fn=self.sum_pos_encodings_in,
+        self.inp_sent_reps, _ = theano.scan(fn=self.pos_encodings,
                                 sequences=self.input_var)
+        self.ans_reps, _ = theano.scan(fn=self.pos_encodings,
+                                sequences=self.answer_var)
 
-        self.inp_sent_reps_stacked = T.stacklists(self.inp_sent_reps)
+        #self.inp_sent_reps_stacked = T.stacklists(self.inp_sent_reps)
         #self.inp_c = self.input_module_full(self.inp_sent_reps_stacked)
 
         self.inp_c = self.input_module_full(self.inp_sent_reps)
 
-        self.q_q = self.sum_pos_encodings_q(self.q_var)
+        self.q_q = self.pos_encodings(self.q_var)
                 
         print "==> creating parameters for memory module"
         self.W_mem_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
@@ -152,10 +254,11 @@ class DMN_tied:
         last_mem = layers.get_output(net)[0]
         
         print "==> building answer module"
-        self.W_a = nn_utils.normal_param(std=0.1, shape=(self.vocab_size, self.dim))
+        self.W_a = nn_utils.normal_param(std=0.1, shape=(300, self.dim))
         
         if self.answer_module == 'feedforward':
-            self.prediction = nn_utils.softmax(T.dot(self.W_a, last_mem))
+            self.temp = T.dot(self.ans_reps, self.W_a)
+            self.prediction = nn_utils.softmax(T.dot(self.temp, last_mem))
         
         elif self.answer_module == 'recurrent':
             self.W_ans_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim + self.vocab_size))
@@ -212,7 +315,7 @@ class DMN_tied:
         
         print "==> building loss layer and computing updates"
         self.loss_ce = T.nnet.categorical_crossentropy(self.prediction.dimshuffle('x', 0), 
-                                                       T.stack([self.answer_var]))[0]
+                                                       T.stack([self.target]))[0]
 
         if self.l2 > 0:
             self.loss_l2 = self.l2 * nn_utils.l2_reg(self.params)
@@ -230,19 +333,19 @@ class DMN_tied:
         self.attentions = T.stack(self.attentions)
         if self.mode == 'train':
             print "==> compiling train_fn"
-            self.train_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var], 
+            self.train_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var, self.target], 
                                             outputs=[self.prediction, self.loss, self.attentions],
                                             updates=updates,
                                             on_unused_input='warn',
                                             allow_input_downcast=True)
         
         print "==> compiling test_fn"
-        self.test_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var],
+        self.test_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var, self.target],
                                        outputs=[self.prediction, self.loss, self.attentions],
                                        on_unused_input='warn',
                                        allow_input_downcast=True)
     
-
+    '''
     def pe_matrix(self, num_words):
         embedding_size = self.dim
 
@@ -255,12 +358,17 @@ class DMN_tied:
         pe_matrix = 1. + 4. * pe_matrix / (float(embedding_size) * num_words)
 
         return pe_matrix
-
-    def sum_pos_encodings_in(self, statement):
-        pe_matrix = self.pe_matrix_in
-        pe_weights = pe_matrix * self.W_pe[statement]
-
-        #'''
+    '''
+    def pos_encodings(self, statement):
+        statement = self.T_w2v[statement]
+        num_words = len(statement)
+        l = np.zeros(300)
+        for j in range(num_words):
+            for d in range(300):
+                l[d] = (1-(1.+j)/num_words)-((d+1.)/300)*(1-2*(1.+j)/num_words)
+            statement[j] = l[d] * statement[j]
+        
+        '''
         if self.dropout_in > 0 and self.mode == 'train':
             pe_weights_d = pe_weights.dimshuffle(('x', 0, 1))
             net = layers.InputLayer(shape=(1, self.max_inp_sent_len, self.dim), input_var=pe_weights_d)
@@ -268,11 +376,11 @@ class DMN_tied:
             pe_weights = layers.get_output(net)[0]
         #'''
 
-        pe_weights = T.cast(pe_weights, floatX)
-        memories = T.sum(pe_weights, axis=0)
+        #pe_weights = T.cast(pe_weights, floatX)
+        memories = T.sum(statement, axis=0)
         return memories
         #return memories[-1]
-
+    '''
     def sum_pos_encodings_q(self, statement):
         pe_matrix = self.pe_matrix_q
         pe_weights = pe_matrix * self.W_pe[statement]
@@ -284,7 +392,7 @@ class DMN_tied:
         sent_rep, _ = theano.scan(fn = self.sum_pos_encodings,
             sequences = statements)
         return sent_rep
-
+    '''
     def bi_GRU_fwd(self, x_fwd, prev_h):
         fwd_gru = self.GRU_update(prev_h, x_fwd, self.W_inp_res_in_fwd, self.W_inp_res_hid_fwd, self.b_inp_res_fwd, 
                                  self.W_inp_upd_in_fwd, self.W_inp_upd_hid_fwd, self.b_inp_upd_fwd,
@@ -614,25 +722,28 @@ class DMN_tied:
             qs = self.train_q
             answers = self.train_answer
             input_masks = self.train_input_mask
+            qinfo = self.train_qinfo
         elif mode == "test":    
             theano_fn = self.test_fn 
             inputs = self.test_input
             qs = self.test_q
             answers = self.test_answer
             input_masks = self.test_input_mask
+            qinfo = self.test_qinfo
         else:
             raise Exception("Invalid mode")
             
-        inp = inputs[batch_index]
+        inp = inputs[qinfo[batch_index]['movie']]
         q = qs[batch_index]
         ans = answers[batch_index]
         input_mask = input_masks[batch_index]
+        target = qinfo[batch_index]['correct_option']
 
-        ret = theano_fn(inp, q, ans, input_mask)
+        ret = theano_fn(inp, q, ans, input_mask, target)
         param_norm = np.max([utils.get_norm(x.get_value()) for x in self.params])
         
         return {"prediction": np.array([ret[0]]),
-                "answers": np.array([ans]),
+                "answers": np.array([target]),
                 "current_loss": ret[1],
                 "skipped": 0,
                 "log": "pn: %.3f" % param_norm,
@@ -649,3 +760,107 @@ class DMN_tied:
         inputs, questions, answers, input_masks = self._process_input(data)
         probabilities, loss, attentions = self.test_fn(inputs[0], questions[0], answers[0], input_masks[0])
         return probabilities, attentions
+
+    def create_vocabulary(QAs, stories, v2i, w2v_vocab=None, word_thresh=2):
+        """Create the vocabulary by taking all words in stories, questions, and answers taken together.
+        Also, keep only words that appear in the word2vec model vocabulary (if provided with one).
+        """
+
+        print "Creating vocabulary.",
+        if w2v_vocab is not None:
+            print "Adding words based on word2vec"
+        else:
+            print "Adding all words"
+        # Get all story words
+        all_words = [word for story in stories for sent in story for word in sent]
+
+        # Parse QAs to get actual words
+        QA_words = []
+        for QA in QAs:
+            QA_words.append({})
+            QA_words[-1]['q_w'] = utils.normalize_alphanumeric(QA.question.lower()).split(' ')
+            QA_words[-1]['a_w'] = [utils.normalize_alphanumeric(answer.lower()).split(' ') for answer in QA.answers]
+
+        # Append question and answer words to all_words
+        for QAw in QA_words:
+            all_words.extend(QAw['q_w'])
+            for answer in QAw['a_w']:
+                all_words.extend(answer)
+
+        # threshold vocabulary, at least N instances of every word
+        vocab = Counter(all_words)
+        vocab = [k for k in vocab.keys() if vocab[k] >= word_thresh]
+
+        # create vocabulary index
+        for w in vocab:
+            if w not in v2i.keys():
+                if w2v_vocab is None:
+                    # if word2vec is not provided, just dump the word to vocab
+                    v2i[w] = len(v2i)
+                elif w2v_vocab is not None and w in w2v_vocab:
+                    # check if word in vocab, or else ignore
+                    v2i[w] = len(v2i)
+
+        print "Created a vocabulary of %d words. Threshold removed %.2f %% words" \
+                %(len(v2i), 100*(1. * len(set(all_words)) - len(v2i))/len(all_words))
+
+        return QA_words, v2i
+
+    def data_in_matrix_form(stories, QA_words, v2i):
+        """Make the QA data set compatible for memory networks by
+        converting to matrix format (index into LUT vocabulary).
+        """
+
+        def add_word_or_UNK():
+            if v2i.has_key(word):
+                return v2i[word]
+            else:
+                return v2i['UNK']
+
+        # Encode stories
+        max_sentences = max([len(story) for story in stories.values()])
+        max_words = max([len(sent) for story in stories.values() for sent in story])
+
+        storyM = {}
+        for imdb_key, story in stories.iteritems():
+            storyM[imdb_key] = np.zeros((max_sentences, max_words), dtype='int32')
+            for jj, sentence in enumerate(story):
+                for kk, word in enumerate(sentence):
+                    storyM[imdb_key][jj, kk] = add_word_or_UNK()
+
+        print "#stories:", len(storyM)
+        print "storyM shape (movie 1):", storyM.values()[0].shape
+
+        # Encode questions
+        max_words = max([len(qa['q_w']) for qa in QA_words])
+        questionM = np.zeros((len(QA_words), max_words), dtype='int32')
+        for ii, qa in enumerate(QA_words):
+            for jj, word in enumerate(qa['q_w']):
+                questionM[ii, jj] = add_word_or_UNK()
+        print "questionM:", questionM.shape
+
+        # Encode answers
+        max_answers = max([len(qa['a_w']) for qa in QA_words])
+        max_words = max([len(a) for qa in QA_words for a in qa['a_w']])
+        answerM = np.zeros((len(QA_words), max_answers, max_words), dtype='int32')
+        for ii, qa in enumerate(QA_words):
+            for jj, answer in enumerate(qa['a_w']):
+                if answer == ['']:  # if answer is empty, add an 'UNK', since every answer option should have at least one valid word
+                    answerM[ii, jj, 0] = 1
+                    continue
+                for kk, word in enumerate(answer):
+                    answerM[ii, jj, kk] = add_word_or_UNK()
+        print "answerM:", answerM.shape
+
+        return storyM, questionM, answerM
+
+    def associate_additional_QA_info(QAs):
+        """Get some information about the questions like story index and correct option.
+        """
+
+        qinfo = []
+        for QA in QAs:
+            qinfo.append({'qid':QA.qid,
+                          'movie':QA.imdb_key,
+                          'correct_option':QA.correct_index})
+        return qinfo
