@@ -21,7 +21,7 @@ def dmn_start():
     parser.add_argument('--network', type=str, default="dmn_tied", help='embeding size (50, 100, 200, 300 only)')
     parser.add_argument('--word_vector_size', type=int, default=300, help='embeding size (50, 100, 200, 300 only)')
     parser.add_argument('--sent_vector_size', type=int, default=300, help='embeding size (50, 100, 200, 300 only)')
-    parser.add_argument('--dim', type=int, default=80, help='number of hidden units in input module GRU')
+    parser.add_argument('--dim', type=int, default=300, help='number of hidden units in input module GRU')
     parser.add_argument('--epochs', type=int, default=100, help='number of epochs')
     parser.add_argument('--load_state', type=str, default="", help='state file path')
     parser.add_argument('--answer_module', type=str, default="feedforward", help='answer module type: feedforward or recurrent')
@@ -54,7 +54,7 @@ def dmn_start():
     parser.add_argument('--dropout_in', type=float, default=0.0, help='dropout rate for input (between 0 and 1)')
 
     parser.add_argument('--batch_norm', type=bool, default=False, help='batch normalization')
-    parser.set_defaults(shuffle=True)
+    parser.set_defaults(shuffle=False)
     args = parser.parse_args()
 
     return args

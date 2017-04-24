@@ -154,8 +154,8 @@ class DMN_tied:
         # setup LUT!
         self.T_w2v = theano.shared(self.LUT.astype(theano.config.floatX))
 
-        self.train_input_mask = T_mask
-        self.test_input_mask = T_mask
+        self.train_input_mask = np_mask
+        self.test_input_mask = np_mask
         #self.train_input, self.train_q, self.train_answer, self.train_input_mask = self._process_input(babi_train_raw)
         #self.test_input, self.test_q, self.test_answer, self.test_input_mask = self._process_input(babi_test_raw)
         self.vocab_size = len(self.vocab)
@@ -715,18 +715,18 @@ class DMN_tied:
             qinfo = self.test_qinfo
         else:
             raise Exception("Invalid mode")
-            
+
         inp = inputs[qinfo[batch_index]['movie']]
         q = qs[batch_index]
         ans = answers[batch_index]
-        input_mask = input_masks[batch_index]
+        input_mask = input_masks
         target = qinfo[batch_index]['correct_option']
         p_inp = np.zeros((len(inp), 300))
         p_ans = np.zeros((len(ans), 300))
         p_q = np.zeros(300)
-        for i in inp:
+        for i in range(len(inp)):
             p_inp[i] = self.pos_encodings(inp[i])
-        for j in ans:
+        for j in range(len(ans)):
             p_ans[j] = self.pos_encodings(ans[j])
         p_q = self.pos_encodings(q)
 
