@@ -12,8 +12,6 @@ import nn_utils
 from movieqa_importer import MovieQA
 
 # Seed random number generators
-rng = np.random
-rng.seed(1234)
 
 def dmn_start():
     print "==> parsing input arguments"
