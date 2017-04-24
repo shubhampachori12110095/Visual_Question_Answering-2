@@ -130,29 +130,29 @@ class DMN_tied:
         self.pca_mat = None
         print "Initialize LUTs as word2vec and use linear projection layer"
 
-        LUT = np.zeros((self.vs, self.d_w2v), dtype='float32')
+        self.LUT = np.zeros((self.vs, self.d_w2v), dtype='float32')
         found_words = 0
         for w, v in self.v2i.iteritems():
             if w in self.w2v.vocab:  # all valid words are already in vocab or 'UNK'
-                LUT[v] = self.w2v.get_vector(w)
+                self.LUT[v] = self.w2v.get_vector(w)
                 found_words += 1
             else:
                 # LUT[v] = np.zeros((self.d_w2v))
-                LUT[v] = self.rng.randn(self.d_w2v)
-                LUT[v] = LUT[v] / (np.linalg.norm(LUT[v]) + 1e-6)
+                self.LUT[v] = self.rng.randn(self.d_w2v)
+                self.LUT[v] = self.LUT[v] / (np.linalg.norm(self.LUT[v]) + 1e-6)
 
         print "Found %d / %d words" %(found_words, len(self.v2i))
 
         # word 0 is blanked out, word 1 is 'UNK'
-        LUT[0] = np.zeros((self.d_w2v))
+        self.LUT[0] = np.zeros((self.d_w2v))
 
         # if linear projection layer is not the same shape as LUT, then initialize with PCA
-        if self.d_lproj != LUT.shape[1]:
+        if self.d_lproj != self.LUT.shape[1]:
             pca = PCA(n_components=self.d_lproj, whiten=True)
-            self.pca_mat = pca.fit_transform(LUT.T)  # 300 x 100?
+            self.pca_mat = pca.fit_transform(self.LUT.T)  # 300 x 100?
 
         # setup LUT!
-        self.T_w2v = theano.shared(LUT.astype(theano.config.floatX))
+        self.T_w2v = theano.shared(self.LUT.astype(theano.config.floatX))
 
         self.train_input_mask = T_mask
         self.test_input_mask = T_mask
@@ -160,14 +160,11 @@ class DMN_tied:
         #self.test_input, self.test_q, self.test_answer, self.test_input_mask = self._process_input(babi_test_raw)
         self.vocab_size = len(self.vocab)
 
-        self.input_var = T.imatrix('input_var')
-        self.q_var = T.ivector('question_var')
-        self.answer_var = T.imatrix('answer_var')
+        self.input_var = T.fmatrix('input_var')
+        self.q_var = T.fvector('question_var')
+        self.answer_var = T.fmatrix('answer_var')
         self.input_mask_var = T.imatrix('input_mask_var')
         self.target = T.iscalar('target')
-        self.inp_num_words = T.ivector('inp_num_words')
-        self.ans_num_words = T.ivector('ans_num_words')
-        self.q_num_words = T.iscalar('q_num_words')
         self.attentions = []
 
         #self.pe_matrix_in = self.pe_matrix(self.max_inp_sent_len)
@@ -207,17 +204,10 @@ class DMN_tied:
         #self.V_f = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
         #self.V_b = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
 
-        self.inp_sent_reps, _ = theano.scan(fn=self.pos_encodings,
-                                sequences=[self.input_var, self.inp_num_words])
-        self.ans_reps, _ = theano.scan(fn=self.pos_encodings,
-                                sequences=[self.answer_var, self.ans_num_words])
-
-        #self.inp_sent_reps_stacked = T.stacklists(self.inp_sent_reps)
-        #self.inp_c = self.input_module_full(self.inp_sent_reps_stacked)
-
+        self.inp_sent_reps = self.input_var
+        self.ans_reps = self.answer_var
         self.inp_c = self.input_module_full(self.inp_sent_reps)
-
-        self.q_q = self.pos_encodings(self.q_var, self.q_num_words)
+        self.q_q = self.q_var
                 
         print "==> creating parameters for memory module"
         self.W_mem_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
@@ -336,14 +326,14 @@ class DMN_tied:
         self.attentions = T.stack(self.attentions)
         if self.mode == 'train':
             print "==> compiling train_fn"
-            self.train_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var, self.target, self.inp_num_words, self.ans_num_words, self.q_num_words], 
+            self.train_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var, self.target], 
                                             outputs=[self.prediction, self.loss, self.attentions],
                                             updates=updates,
                                             on_unused_input='warn',
                                             allow_input_downcast=True)
         
         print "==> compiling test_fn"
-        self.test_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var, self.target, self.inp_num_words, self.ans_num_words, self.q_num_words],
+        self.test_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var, self.target],
                                        outputs=[self.prediction, self.loss, self.attentions],
                                        on_unused_input='warn',
                                        allow_input_downcast=True)
@@ -362,26 +352,17 @@ class DMN_tied:
 
         return pe_matrix
     '''
-    def pos_encodings(self, statement, num_words):
-        statement = self.T_w2v[statement]
+    def pos_encodings(self, statement):
+        statement = self.LUT[statement]
+        num_words = len(statement)
         l = np.zeros(300)
         for j in range(num_words):
             for d in range(300):
                 l[d] = (1-(1.+j)/num_words)-((d+1.)/300)*(1-2*(1.+j)/num_words)
             statement[j] = l[d] * statement[j]
-        
-        '''
-        if self.dropout_in > 0 and self.mode == 'train':
-            pe_weights_d = pe_weights.dimshuffle(('x', 0, 1))
-            net = layers.InputLayer(shape=(1, self.max_inp_sent_len, self.dim), input_var=pe_weights_d)
-            net = layers.DropoutLayer(net, p=self.dropout_in)
-            pe_weights = layers.get_output(net)[0]
-        #'''
-
-        #pe_weights = T.cast(pe_weights, floatX)
-        memories = T.sum(statement, axis=0)
+        memories = sum(statement)
         return memories
-        #return memories[-1]
+
     '''
     def sum_pos_encodings_q(self, statement):
         pe_matrix = self.pe_matrix_q
@@ -740,11 +721,16 @@ class DMN_tied:
         ans = answers[batch_index]
         input_mask = input_masks[batch_index]
         target = qinfo[batch_index]['correct_option']
-        inp_num_words = self.get_num_words(inp)
-        ans_num_words = self.get_num_words(ans)
-        q_num_words = len(q)
+        p_inp = np.zeros((len(inp), 300))
+        p_ans = np.zeros((len(ans), 300))
+        p_q = np.zeros(300)
+        for i in inp:
+            p_inp[i] = self.pos_encodings(inp[i])
+        for j in ans:
+            p_ans[j] = self.pos_encodings(ans[j])
+        p_q = self.pos_encodings(q)
 
-        ret = theano_fn(inp, q, ans, input_mask, target, inp_num_words, ans_num_words, q_num_words)
+        ret = theano_fn(p_inp, p_q, p_ans, input_mask, target)
         param_norm = np.max([utils.get_norm(x.get_value()) for x in self.params])
         
         return {"prediction": np.array([ret[0]]),
@@ -869,9 +855,3 @@ class DMN_tied:
                           'movie':QA.imdb_key,
                           'correct_option':QA.correct_index})
         return qinfo
-    
-    def get_num_words(self, input):
-        num_words = []
-        for i in len(input):
-            num_words.append(len(input[i]))
-        return num_words
