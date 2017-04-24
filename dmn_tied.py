@@ -44,7 +44,7 @@ class DMN_tied:
         self.word_thresh = 1
         print "Loaded word2vec model: dim = %d | vocab-size = %d" % (self.d_w2v, len(w2v_model.vocab))
         ### Create vocabulary-to-index and index-to-vocabulary
-        v2i = {'': 0, 'UNK':1}  # vocabulary to index
+        v2i = {'': 0, 'UNK':1}  # vocabulary to index)
         QA_words, v2i = self.create_vocabulary(QAs, stories, v2i, w2v_vocab=w2v_model.vocab.tolist(), word_thresh=self.word_thresh)
         i2v = {v:k for k,v in v2i.iteritems()}
         self.vocab = v2i
@@ -869,9 +869,12 @@ class DMN_tied:
                           'movie':QA.imdb_key,
                           'correct_option':QA.correct_index})
         return qinfo
+<<<<<<< HEAD
     
     def get_num_words(self, input):
         num_words = []
         for i in len(input):
             num_words.append(len(input[i]))
         return num_words
+=======
+>>>>>>> origin/master
