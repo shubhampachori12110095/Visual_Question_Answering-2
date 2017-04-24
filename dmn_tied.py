@@ -20,6 +20,7 @@ from keras.utils.theano_utils import shared_zeros, alloc_zeros_matrix
 
 import utils
 import nn_utils
+from movieqa_importer import MovieQA
 
 w2v_mqa_model_filename = 'models/movie_plots_1364.d-300.mc1.w2v'
 #theano.config.floatX = 'float32'
@@ -32,7 +33,10 @@ class DMN_tied:
                 dim, mode, answer_module, input_mask_mode, memory_hops, l2, 
                 normalize_attention, batch_norm, dropout, dropout_in, **kwargs):
 
-        print "==> not used params in DMN class:", kwargs.keys()
+        #print "==> not used params in DMN class:", kwargs.keys()
+        self.rng = np.random
+        self.rng.seed(1234)
+        mqa = MovieQA.DataLoader()
         ### Load Word2Vec model
         w2v_model = w2v.load(w2v_mqa_model_filename, kind='bin')
         self.w2v = w2v_model
@@ -41,9 +45,7 @@ class DMN_tied:
         print "Loaded word2vec model: dim = %d | vocab-size = %d" % (self.d_w2v, len(w2v_model.vocab))
         ### Create vocabulary-to-index and index-to-vocabulary
         v2i = {'': 0, 'UNK':1}  # vocabulary to index
-        QA_words, v2i = create_vocabulary(QAs, stories, v2i,
-                                     w2v_vocab=w2v_model.vocab.tolist(),
-                                     word_thresh=self.word_thresh)
+        QA_words, v2i = self.create_vocabulary(QAs, stories, v2i, w2v_vocab=w2v_model.vocab.tolist(), word_thresh=self.word_thresh)
         i2v = {v:k for k,v in v2i.iteritems()}
         self.vocab = v2i
         self.ivocab = i2v
@@ -75,8 +77,8 @@ class DMN_tied:
         # storyM - Dictionary - indexed by imdb_key. Values are [num-sentence X max-num-words]
         # questionM - NP array - [num-question X max-num-words]
         # answerM - NP array - [num-question X num-answer-options X max-num-words]
-        storyM, questionM, answerM = data_in_matrix_form(stories, QA_words, v2i)
-        qinfo = associate_additional_QA_info(QAs)
+        storyM, questionM, answerM = self.data_in_matrix_form(stories, QA_words, v2i)
+        qinfo = self.associate_additional_QA_info(QAs)
 
         ### Split everything into train, val, and test data
         train_storyM = {k:v for k, v in storyM.iteritems() if k in mqa.data_split['train']}
@@ -104,8 +106,6 @@ class DMN_tied:
         train_data = {'s':train_storyM, 'q':train_questionM, 'a':train_answerM, 'qinfo':train_qinfo}
         val_data =   {'s':val_storyM,   'q':val_questionM,   'a':val_answerM,   'qinfo':val_qinfo}
         test_data  = {'s':test_storyM,  'q':test_questionM,  'a':test_answerM,  'qinfo':test_qinfo}
-
-        setup_model_configuration(v2i, storyM.values()[0].shape)
 
         self.train_input = train_storyM
         self.train_q = train_questionM
@@ -165,6 +165,9 @@ class DMN_tied:
         self.answer_var = T.imatrix('answer_var')
         self.input_mask_var = T.imatrix('input_mask_var')
         self.target = T.iscalar('target')
+        self.inp_num_words = T.ivector('inp_num_words')
+        self.ans_num_words = T.ivector('ans_num_words')
+        self.q_num_words = T.iscalar('q_num_words')
         self.attentions = []
 
         #self.pe_matrix_in = self.pe_matrix(self.max_inp_sent_len)
@@ -205,16 +208,16 @@ class DMN_tied:
         #self.V_b = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
 
         self.inp_sent_reps, _ = theano.scan(fn=self.pos_encodings,
-                                sequences=self.input_var)
+                                sequences=[self.input_var, self.inp_num_words])
         self.ans_reps, _ = theano.scan(fn=self.pos_encodings,
-                                sequences=self.answer_var)
+                                sequences=[self.answer_var, self.ans_num_words])
 
         #self.inp_sent_reps_stacked = T.stacklists(self.inp_sent_reps)
         #self.inp_c = self.input_module_full(self.inp_sent_reps_stacked)
 
         self.inp_c = self.input_module_full(self.inp_sent_reps)
 
-        self.q_q = self.pos_encodings(self.q_var)
+        self.q_q = self.pos_encodings(self.q_var, self.q_num_words)
                 
         print "==> creating parameters for memory module"
         self.W_mem_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
@@ -333,14 +336,14 @@ class DMN_tied:
         self.attentions = T.stack(self.attentions)
         if self.mode == 'train':
             print "==> compiling train_fn"
-            self.train_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var, self.target], 
+            self.train_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var, self.target, self.inp_num_words, self.ans_num_words, self.q_num_words], 
                                             outputs=[self.prediction, self.loss, self.attentions],
                                             updates=updates,
                                             on_unused_input='warn',
                                             allow_input_downcast=True)
         
         print "==> compiling test_fn"
-        self.test_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var, self.target],
+        self.test_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var, self.target, self.inp_num_words, self.ans_num_words, self.q_num_words],
                                        outputs=[self.prediction, self.loss, self.attentions],
                                        on_unused_input='warn',
                                        allow_input_downcast=True)
@@ -359,9 +362,8 @@ class DMN_tied:
 
         return pe_matrix
     '''
-    def pos_encodings(self, statement):
+    def pos_encodings(self, statement, num_words):
         statement = self.T_w2v[statement]
-        num_words = len(statement)
         l = np.zeros(300)
         for j in range(num_words):
             for d in range(300):
@@ -738,8 +740,11 @@ class DMN_tied:
         ans = answers[batch_index]
         input_mask = input_masks[batch_index]
         target = qinfo[batch_index]['correct_option']
+        inp_num_words = self.get_num_words(inp)
+        ans_num_words = self.get_num_words(ans)
+        q_num_words = len(q)
 
-        ret = theano_fn(inp, q, ans, input_mask, target)
+        ret = theano_fn(inp, q, ans, input_mask, target, inp_num_words, ans_num_words, q_num_words)
         param_norm = np.max([utils.get_norm(x.get_value()) for x in self.params])
         
         return {"prediction": np.array([ret[0]]),
@@ -761,7 +766,7 @@ class DMN_tied:
         probabilities, loss, attentions = self.test_fn(inputs[0], questions[0], answers[0], input_masks[0])
         return probabilities, attentions
 
-    def create_vocabulary(QAs, stories, v2i, w2v_vocab=None, word_thresh=2):
+    def create_vocabulary(self, QAs, stories, v2i, w2v_vocab=None, word_thresh=1):
         """Create the vocabulary by taking all words in stories, questions, and answers taken together.
         Also, keep only words that appear in the word2vec model vocabulary (if provided with one).
         """
@@ -806,7 +811,7 @@ class DMN_tied:
 
         return QA_words, v2i
 
-    def data_in_matrix_form(stories, QA_words, v2i):
+    def data_in_matrix_form(self, stories, QA_words, v2i):
         """Make the QA data set compatible for memory networks by
         converting to matrix format (index into LUT vocabulary).
         """
@@ -854,7 +859,7 @@ class DMN_tied:
 
         return storyM, questionM, answerM
 
-    def associate_additional_QA_info(QAs):
+    def associate_additional_QA_info(self, QAs):
         """Get some information about the questions like story index and correct option.
         """
 
@@ -864,3 +869,9 @@ class DMN_tied:
                           'movie':QA.imdb_key,
                           'correct_option':QA.correct_index})
         return qinfo
+    
+    def get_num_words(self, input):
+        num_words = []
+        for i in len(input):
+            num_words.append(len(input[i]))
+        return num_words
