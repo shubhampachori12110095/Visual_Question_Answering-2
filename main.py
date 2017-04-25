@@ -169,7 +169,7 @@ def do_epoch(mode, epoch, skipped=0):
 
 def dmn_finish(args, network_name, dmn):
     acc_list = []
-    max_acc = [0.0, 0.0]
+    max_acc = [0, 0]
     if args.mode == 'train':
         print "==> training"    
         skipped = 0
@@ -184,16 +184,15 @@ def dmn_finish(args, network_name, dmn):
             
             epoch_loss, skipped, test_acc = do_epoch('test', epoch, skipped)
             acc_list.append([epoch, train_acc, test_acc])
-            if train_acc > max_acc[0]:
-                max_acc[0] = train_acc
             if test_acc > max_acc[1]:
+                max_acc[0] = epoch
                 max_acc[1] = test_acc
             state_name = 'states/%s.epoch%d.test%.5f.state' % (network_name, epoch, epoch_loss)
             
             if (epoch % args.save_every == 0):    
                 print "==> saving ... %s" % state_name
                 dmn.save_params(state_name, epoch)
-            
+            print "current_max: " + str(max_acc[0]) + '\t' + str(max_acc[1])
             print "epoch %d took %.3fs" % (epoch, float(time.time()) - start_time)
 
     elif args.mode == 'test':
