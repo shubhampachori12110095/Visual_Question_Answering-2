@@ -29,11 +29,12 @@ floatX = theano.config.floatX
 
 class DMN_tied:
     
-    def __init__(self, stories, QAs, word_vector_size, sent_vector_size, 
+    def __init__(self, stories, QAs, learning_rate, word_vector_size, sent_vector_size, 
                 dim, mode, answer_module, input_mask_mode, memory_hops, l2, 
                 normalize_attention, batch_norm, dropout, dropout_in, **kwargs):
 
         #print "==> not used params in DMN class:", kwargs.keys()
+        self.learning_rate = learning_rate
         self.rng = np.random
         self.rng.seed(1234)
         mqa = MovieQA.DataLoader()
@@ -319,7 +320,7 @@ class DMN_tied:
         
         #updates = lasagne.updates.adadelta(self.loss, self.params)
         #updates = lasagne.updates.adam(self.loss, self.params)
-        updates = lasagne.updates.adam(self.loss, self.params, learning_rate=0.001, beta1=0.5) #from DCGAN paper
+        updates = lasagne.updates.adam(self.loss, self.params, learning_rate=self.learning_rate, beta1=0.5) #from DCGAN paper
         #updates = lasagne.updates.adadelta(self.loss, self.params, learning_rate=0.0005)
         #updates = lasagne.updates.momentum(self.loss, self.params, learning_rate=0.0003)
         
