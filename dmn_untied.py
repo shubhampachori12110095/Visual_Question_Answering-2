@@ -50,7 +50,7 @@ class DMN_untied:
         self.vocab = v2i
         self.ivocab = i2v
         
-        self.word2vec = word2vec
+        self.word2vec = w2v_model
         self.word_vector_size = word_vector_size
         self.sent_vector_size = sent_vector_size
         self.dim = dim
@@ -246,10 +246,11 @@ class DMN_untied:
         last_mem = layers.get_output(net)[0]
         
         print "==> building answer module"
-        self.W_a = nn_utils.normal_param(std=0.1, shape=(self.vocab_size, self.dim))
+        self.W_a = nn_utils.normal_param(std=0.1, shape=(300, self.dim))
         
         if self.answer_module == 'feedforward':
-            self.prediction = nn_utils.softmax(T.dot(self.W_a, last_mem))
+            self.temp = T.dot(self.ans_reps, self.W_a)
+            self.prediction = nn_utils.softmax(T.dot(self.temp, last_mem))
         
         elif self.answer_module == 'recurrent':
             self.W_ans_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim + self.vocab_size))
@@ -306,7 +307,7 @@ class DMN_untied:
         
         print "==> building loss layer and computing updates"
         self.loss_ce = T.nnet.categorical_crossentropy(self.prediction.dimshuffle('x', 0), 
-                                                       T.stack([self.answer_var]))[0]
+                                                       T.stack([self.target]))[0]
 
         if self.l2 > 0:
             self.loss_l2 = self.l2 * nn_utils.l2_reg(self.params)
@@ -728,11 +729,11 @@ class DMN_untied:
             p_ans[j] = self.pos_encodings(ans[j])
         p_q = self.pos_encodings(q)
 
-        ret = theano_fn(inp, q, ans, input_mask)
+        ret = theano_fn(p_inp, p_q, p_ans, input_mask, target)
         param_norm = np.max([utils.get_norm(x.get_value()) for x in self.params])
         
         return {"prediction": np.array([ret[0]]),
-                "answers": np.array([ans]),
+                "answers": np.array([target]),
                 "current_loss": ret[1],
                 "skipped": 0,
                 "log": "pn: %.3f" % param_norm,

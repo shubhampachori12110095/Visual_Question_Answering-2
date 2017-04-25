@@ -207,7 +207,7 @@ def dmn_finish(args, network_name, dmn):
 
     else:
         raise Exception("unknown mode")
-    log_name = './acc_log_' + args.story_source + '_' + str(args.learning_rate) + '.txt'
+    log_name = './acc_log_' + args.network + '_' + args.story_source + '_' + str(args.learning_rate) + '.txt'
     with open(log_name, 'w') as f_log:
         for acc in acc_list:
             output = str(acc[0]) + '\t' + str(acc[1]) + '\t' + str(acc[2]) + '\n'
