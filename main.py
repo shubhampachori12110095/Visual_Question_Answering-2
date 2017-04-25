@@ -17,7 +17,7 @@ def dmn_start():
     print "==> parsing input arguments"
     parser = argparse.ArgumentParser()
     parser.add_argument('--story_source', type=str, default="subtitle", help='story source text: split_plot | dvs | subtitle | script')
-    parser.add_argument('--learning_rate', type=str, default="0.001", help='set learning rate')
+    parser.add_argument('--learning_rate', type=float, default="0.001", help='set learning rate')
     parser.add_argument('--network', type=str, default="dmn_tied", help='embeding size (50, 100, 200, 300 only)')
     parser.add_argument('--word_vector_size', type=int, default=300, help='embeding size (50, 100, 200, 300 only)')
     parser.add_argument('--sent_vector_size', type=int, default=300, help='embeding size (50, 100, 200, 300 only)')
@@ -207,7 +207,7 @@ def dmn_finish(args, network_name, dmn):
 
     else:
         raise Exception("unknown mode")
-    log_name = './acc_log_' + args.story_source + '_' + args.learning_rate + '.txt'
+    log_name = './acc_log_' + args.story_source + '_' + str(args.learning_rate) + '.txt'
     with open(log_name, 'w') as f_log:
         for acc in acc_list:
             output = str(acc[0]) + '\t' + str(acc[1]) + '\t' + str(acc[2]) + '\n'
