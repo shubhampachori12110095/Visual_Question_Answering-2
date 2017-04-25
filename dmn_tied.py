@@ -318,8 +318,8 @@ class DMN_tied:
         self.loss = self.loss_ce + self.loss_l2
         
         #updates = lasagne.updates.adadelta(self.loss, self.params)
-        updates = lasagne.updates.adam(self.loss, self.params)
-        updates = lasagne.updates.adam(self.loss, self.params, learning_rate=0.0001, beta1=0.5) #from DCGAN paper
+        #updates = lasagne.updates.adam(self.loss, self.params)
+        updates = lasagne.updates.adam(self.loss, self.params, learning_rate=0.001, beta1=0.5) #from DCGAN paper
         #updates = lasagne.updates.adadelta(self.loss, self.params, learning_rate=0.0005)
         #updates = lasagne.updates.momentum(self.loss, self.params, learning_rate=0.0003)
         

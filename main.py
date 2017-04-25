@@ -162,12 +162,14 @@ def do_epoch(mode, epoch, skipped=0):
     print "confusion matrix:"
     print metrics.confusion_matrix(y_true, y_pred)
     
-    accuracy = sum([1 if t == p else 0 for t, p in zip(y_true, y_pred)])
-    print "accuracy: %.2f percent" % (accuracy * 100.0 / batches_per_epoch / args.batch_size)
+    accuracy = sum([1 if t == p else 0 for t, p in zip(y_true, y_pred)]) * 100.0 / batches_per_epoch / args.batch_size
+    print "accuracy: %.2f percent" % accuracy
     
-    return avg_loss, skipped
+    return avg_loss, skipped, accuracy
 
 def dmn_finish(args, network_name, dmn):
+    acc_list = []
+    max_acc = [0.0, 0.0]
     if args.mode == 'train':
         print "==> training"    
         skipped = 0
@@ -177,11 +179,15 @@ def dmn_finish(args, network_name, dmn):
             if args.shuffle:
                 dmn.shuffle_train_set()
             
-            _, skipped = do_epoch('train', epoch, skipped)
+            _, skipped, train_acc = do_epoch('train', epoch, skipped)
             #epoch_loss_train, skipped = do_epoch('train', epoch, skipped)
             
-            epoch_loss, skipped = do_epoch('test', epoch, skipped)
-            
+            epoch_loss, skipped, test_acc = do_epoch('test', epoch, skipped)
+            acc_list.append([epoch, train_acc, test_acc])
+            if train_acc > max_acc[0]:
+                max_acc[0] = train_acc
+            if test_acc > max_acc[1]:
+                max_acc[1] = test_acc
             state_name = 'states/%s.epoch%d.test%.5f.state' % (network_name, epoch, epoch_loss)
             
             if (epoch % args.save_every == 0):    
@@ -202,6 +208,11 @@ def dmn_finish(args, network_name, dmn):
 
     else:
         raise Exception("unknown mode")
+    with open('./acc_log.txt', 'w') as f_log:
+        for acc in acc_list:
+            output = str(acc[0]) + '\t' + str(acc[1]) + '\t' + str(acc[2]) + '\n'
+            f_log.write(output)
+        f_log.write('max: '+str(max_acc[0])+'\t'+str(max_acc[1]))
 
 def normalize_documents(stories, normalize_for=('lower', 'alphanumeric'), max_words=40):
     """Normalize all stories in the dictionary, get list of words per sentence.
