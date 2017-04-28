@@ -21,14 +21,14 @@ if __name__ == "__main__":
     frame_dir = '/home/jwk/Documents/MovieQA_benchmark/story/video_frames/'
     video_dir = '/home/jwk/Documents/MovieQA_benchmark/story/video_clips/'
     for info in qinfo:
-        print info['qid']
+        print '\n' + info['qid'] + '\n'
         dir_name = frame_dir + info['qid'] + '/'
-        os.mkdir(dir_name)
         clips = info['video_clips']
         key = info['movie']
         if len(clips) == 0:
             continue
         else:
+            os.mkdir(dir_name)
             clip_dir = video_dir + key + '/'
             clips = list(set(clips))
             clips.sort()
