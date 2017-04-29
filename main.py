@@ -131,8 +131,8 @@ def do_epoch(mode, epoch, skipped=0):
         batches_per_epoch = len(dmn.val_range)
         perm = rng.permutation(dmn.val_range)
     
-    for i in perm:
-        step_data = dmn.step(i, mode)
+    for i, idx in enumerate(perm):
+        step_data = dmn.step(idx, mode)
         prediction = step_data["prediction"]
         answers = step_data["answers"]
         current_loss = step_data["current_loss"]
