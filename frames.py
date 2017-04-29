@@ -18,10 +18,12 @@ if __name__ == "__main__":
     mqa = MovieQA.DataLoader()
     stories, QAs = mqa.get_story_qa_data('full', 'split_plot')
     qinfo = associate_additional_QA_info(QAs)
+    with open('train_split.json') as fid:
+        trdev = json.load(fid)
+    qinfo = [qi for k, qi in enumerate(qinfo) if (qi['movie'] in trdev['train'] or qi['movie'] in trdev['dev'])]
     frame_dir = '/home/jwk/Documents/MovieQA_benchmark/story/video_frames/'
     video_dir = '/home/jwk/Documents/MovieQA_benchmark/story/video_clips/'
     for info in qinfo:
-        print '\n' + info['qid'] + '\n'
         dir_name = frame_dir + info['qid'] + '/'
         clips = info['video_clips']
         key = info['movie']
@@ -33,5 +35,5 @@ if __name__ == "__main__":
             clips = list(set(clips))
             clips.sort()
             for i, c in enumerate(clips):
-                command = "ffmpeg -i " + clip_dir + c + " -r 1 -f image2 " + dir_name + "clips_" + str(i) + "_frame_%03d.jpg"
+                command = "ffmpeg -i " + clip_dir + c + " -r 1 -s 224x224 -f image2 " + dir_name + "clips_" + str(i) + "_frame_%03d.jpg"
                 out = subprocess.call(command, shell=True)

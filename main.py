@@ -12,6 +12,8 @@ import nn_utils
 from movieqa_importer import MovieQA
 
 # Seed random number generators
+rng = np.random
+rng.seed(1234)
 
 def dmn_start():
     print "==> parsing input arguments"
@@ -122,9 +124,12 @@ def do_epoch(mode, epoch, skipped=0):
     avg_loss = 0.0
     prev_time = time.time()
     
-    batches_per_epoch = dmn.get_batches_per_epoch(mode)
+    if mode == 'train':
+        perm = rng.permutation(dmn.train_range)
+    else:
+        perm = rng.permutation(dmn.val_range)
     
-    for i in range(0, batches_per_epoch):
+    for i in perm:
         step_data = dmn.step(i, mode)
         prediction = step_data["prediction"]
         answers = step_data["answers"]
