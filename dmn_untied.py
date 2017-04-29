@@ -101,6 +101,11 @@ class DMN_untied:
         val_data =   {'s':val_storyM,   'q':val_questionM,   'a':val_answerM,   'qinfo':val_qinfo}
         test_data  = {'s':test_storyM,  'q':test_questionM,  'a':test_answerM,  'qinfo':test_qinfo}
 
+        with open('train_split.json') as fid:
+            trdev = json.load(fid)
+        self.train_range = [k for k, qi in enumerate(qinfo) if qi['movie'] in trdev['train']]
+        self.val_range   = [k for k, qi in enumerate(qinfo) if qi['movie'] in trdev['dev']]
+
         self.train_input = train_storyM
         self.train_q = train_questionM
         self.train_answer = train_answerM
