@@ -125,8 +125,10 @@ def do_epoch(mode, epoch, skipped=0):
     prev_time = time.time()
     
     if mode == 'train':
+        batches_per_epoch = len(dmn.train_range)
         perm = rng.permutation(dmn.train_range)
     else:
+        batches_per_epoch = len(dmn.val_range)
         perm = rng.permutation(dmn.val_range)
     
     for i in perm:
