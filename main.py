@@ -127,10 +127,13 @@ def do_epoch(mode, epoch, skipped=0):
     if mode == 'train':
         batches_per_epoch = len(dmn.train_range)
         perm = rng.permutation(dmn.train_range)
-    else:
+    elif mode == 'train_val':
+        batches_per_epoch = len(dmn.train_val_range)
+        perm = rng.permutation(dmn.train_val_range)
+    elif mode == 'test':
         batches_per_epoch = len(dmn.val_range)
         perm = rng.permutation(dmn.val_range)
-    
+
     for i, idx in enumerate(perm):
         step_data = dmn.step(idx, mode)
         prediction = step_data["prediction"]
@@ -189,7 +192,7 @@ def dmn_finish(args, network_name, dmn):
             _, skipped, train_acc = do_epoch('train', epoch, skipped)
             #epoch_loss_train, skipped = do_epoch('train', epoch, skipped)
             
-            epoch_loss, skipped, test_acc = do_epoch('test', epoch, skipped)
+            epoch_loss, skipped, test_acc = do_epoch('train_val', epoch, skipped)
             acc_list.append([epoch, train_acc, test_acc])
             if test_acc > max_acc[1]:
                 max_acc[0] = epoch
@@ -201,6 +204,13 @@ def dmn_finish(args, network_name, dmn):
                 dmn.save_params(state_name, epoch)
             print "current_max: " + str(max_acc[0]) + '\t' + str(max_acc[1])
             print "epoch %d took %.3fs" % (epoch, float(time.time()) - start_time)
+            
+        log_name = './acc_log_' + args.network + '_' + args.story_source + '_' + str(args.learning_rate) + '.txt'
+        with open(log_name, 'w') as f_log:
+            for acc in acc_list:
+                output = str(acc[0]) + '\t' + str(acc[1]) + '\t' + str(acc[2]) + '\n'
+                f_log.write(output)
+            f_log.write('max: '+str(max_acc[0])+'\t'+str(max_acc[1]))
 
     elif args.mode == 'test':
         file = open('last_tested_model.json', 'w+')
@@ -214,12 +224,7 @@ def dmn_finish(args, network_name, dmn):
 
     else:
         raise Exception("unknown mode")
-    log_name = './acc_log_' + args.network + '_' + args.story_source + '_' + str(args.learning_rate) + '.txt'
-    with open(log_name, 'w') as f_log:
-        for acc in acc_list:
-            output = str(acc[0]) + '\t' + str(acc[1]) + '\t' + str(acc[2]) + '\n'
-            f_log.write(output)
-        f_log.write('max: '+str(max_acc[0])+'\t'+str(max_acc[1]))
+    
 
 def normalize_documents(stories, normalize_for=('lower', 'alphanumeric'), max_words=40):
     """Normalize all stories in the dictionary, get list of words per sentence.

@@ -1,6 +1,7 @@
 import os
 import sys
 import subprocess
+import json
 from movieqa_importer import MovieQA
 
 def associate_additional_QA_info(QAs):
@@ -20,7 +21,7 @@ if __name__ == "__main__":
     qinfo = associate_additional_QA_info(QAs)
     with open('train_split.json') as fid:
         trdev = json.load(fid)
-    qinfo = [qi for k, qi in enumerate(qinfo) if (qi['movie'] in trdev['train'] or qi['movie'] in trdev['dev'])]
+    qinfo = [qi for k, qi in enumerate(qinfo) if (qi['movie'] in trdev['train'] or qi['movie'] in trdev['dev'] or qi['qid'].startswith('val'))]
     frame_dir = '/home/jwk/Documents/MovieQA_benchmark/story/video_frames/'
     video_dir = '/home/jwk/Documents/MovieQA_benchmark/story/video_clips/'
     for info in qinfo:

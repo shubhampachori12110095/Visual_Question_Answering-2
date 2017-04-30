@@ -104,12 +104,17 @@ class DMN_untied:
         with open('train_split.json') as fid:
             trdev = json.load(fid)
         self.train_range = [k for k, qi in enumerate(qinfo) if qi['movie'] in trdev['train']]
-        self.val_range   = [k for k, qi in enumerate(qinfo) if qi['movie'] in trdev['dev']]
+        self.train_val_range   = [k for k, qi in enumerate(qinfo) if qi['movie'] in trdev['dev']]
+        self.val_range = [k for k, qi in enumerate(val_qinfo)]
 
         self.train_input = train_storyM
         self.train_q = train_questionM
         self.train_answer = train_answerM
         self.train_qinfo = train_qinfo
+        self.train_val_input = train_storyM
+        self.train_val_q = train_questionM
+        self.train_val_answer = train_answerM
+        self.train_val_qinfo = train_qinfo
         self.test_input = val_storyM
         self.test_q = val_questionM
         self.test_answer = val_answerM
@@ -710,6 +715,13 @@ class DMN_untied:
             answers = self.train_answer
             input_masks = self.train_input_mask
             qinfo = self.train_qinfo
+        elif mode == "train_val":    
+            theano_fn = self.test_fn 
+            inputs = self.train_val_input
+            qs = self.train_val_q
+            answers = self.train_val_answer
+            input_masks = self.test_input_mask
+            qinfo = self.train_val_qinfo
         elif mode == "test":    
             theano_fn = self.test_fn 
             inputs = self.test_input
