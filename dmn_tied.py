@@ -315,6 +315,9 @@ class DMN_tied:
         
         
         print "==> building loss layer and computing updates"
+        tmp= self.prediction.dimshuffle(2,0,1)
+        res, _ =theano.scan(fn = lambda inp: inp, sequences=tmp)
+        self.prediction = res[-1]
         self.loss_ce = T.nnet.categorical_crossentropy(self.prediction, self.target)
 
         if self.l2 > 0:
