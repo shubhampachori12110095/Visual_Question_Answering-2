@@ -462,7 +462,7 @@ class DMN_tied:
 
     def episode_compute_z(self, fi, prev_g, mem, q_q):
         #euclid square version
-        z = T.concatenate([fi * q_q, fi * mem, (fi - q_q) ** 2, (fi - mem) ** 2])
+        z = T.concatenate([fi * q_q, fi * mem, (fi - q_q) ** 2, (fi - mem) ** 2], axis=1)
         
         #T.abs_ version
         #z = T.concatenate([fi * q_q, fi * mem, T.abs_(fi - q_q), T.abs_(fi - mem)])
