@@ -33,7 +33,7 @@ def dmn_start():
 
     parser.add_argument('--input_mask_mode', type=str, default="sentence", help='input_mask_mode: word or sentence')
     parser.add_argument('--memory_hops', type=int, default=3, help='memory GRU steps')
-    parser.add_argument('--batch_size', type=int, default=1, help='no commment')
+    parser.add_argument('--batch_size', type=int, default=8, help='no commment')
 
     #parser.add_argument('--babi_id', type=str, default="1", help='babi task ID')
     #parser.add_argument('--babi_id', type=str, default="22", help='babi task ID')
@@ -95,16 +95,16 @@ def dmn_mid(args):
 
     if args.network == 'dmn_tied':
         import dmn_tied
-        if (args.batch_size != 1):
-            print "==> not using minibatch training in this mode"
-            args.batch_size = 1
+        #if (args.batch_size != 1):
+            #print "==> not using minibatch training in this mode"
+            #args.batch_size = 1
         dmn = dmn_tied.DMN_tied(**args_dict)
 
     elif args.network == 'dmn_untied':
         import dmn_untied
-        if (args.batch_size != 1):
-            print "==> not using minibatch training in this mode"
-            args.batch_size = 1
+        #if (args.batch_size != 1):
+            #print "==> not using minibatch training in this mode"
+            #args.batch_size = 1
         dmn = dmn_untied.DMN_untied(**args_dict)
         
     else:
@@ -125,17 +125,19 @@ def do_epoch(mode, epoch, skipped=0):
     prev_time = time.time()
     
     if mode == 'train':
-        batches_per_epoch = len(dmn.train_range)
+        batches_per_epoch = int(len(dmn.train_range) / args.batch_size)
         perm = rng.permutation(dmn.train_range)
     elif mode == 'train_val':
-        batches_per_epoch = len(dmn.train_val_range)
+        batches_per_epoch = int(len(dmn.train_val_range) / args.batch_size)
         perm = rng.permutation(dmn.train_val_range)
     elif mode == 'test':
-        batches_per_epoch = len(dmn.val_range)
+        batches_per_epoch = int(len(dmn.val_range) / args.batch_size)
         perm = rng.permutation(dmn.val_range)
 
-    for i, idx in enumerate(perm):
-        step_data = dmn.step(idx, mode)
+    for i in xrange(batches_per_epoch):
+        bs = args.batch_size
+        this_batch = perm[i * bs : (i + 1) * bs]
+        step_data = dmn.step(this_batch, mode)
         prediction = step_data["prediction"]
         answers = step_data["answers"]
         current_loss = step_data["current_loss"]
@@ -204,7 +206,7 @@ def dmn_finish(args, network_name, dmn):
                 dmn.save_params(state_name, epoch)
             print "current_max: " + str(max_acc[0]) + '\t' + str(max_acc[1])
             print "epoch %d took %.3fs" % (epoch, float(time.time()) - start_time)
-            
+
         log_name = './acc_log_' + args.network + '_' + args.story_source + '_' + str(args.learning_rate) + '.txt'
         with open(log_name, 'w') as f_log:
             for acc in acc_list:

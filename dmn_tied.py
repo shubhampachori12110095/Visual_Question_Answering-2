@@ -29,7 +29,7 @@ floatX = theano.config.floatX
 
 class DMN_tied:
     
-    def __init__(self, stories, QAs, learning_rate, word_vector_size, sent_vector_size, 
+    def __init__(self, stories, QAs, batch_size, learning_rate, word_vector_size, sent_vector_size, 
                 dim, mode, answer_module, input_mask_mode, memory_hops, l2, 
                 normalize_attention, batch_norm, dropout, dropout_in, **kwargs):
 
@@ -55,6 +55,7 @@ class DMN_tied:
         self.word_vector_size = word_vector_size
         self.sent_vector_size = sent_vector_size
         self.dim = dim
+        self.batch_size = batch_size
         self.mode = mode
         self.answer_module = answer_module
         self.input_mask_mode = input_mask_mode
@@ -166,11 +167,11 @@ class DMN_tied:
         #self.test_input, self.test_q, self.test_answer, self.test_input_mask = self._process_input(babi_test_raw)
         self.vocab_size = len(self.vocab)
 
-        self.input_var = T.fmatrix('input_var')
-        self.q_var = T.fvector('question_var')
-        self.answer_var = T.fmatrix('answer_var')
+        self.input_var = T.ftensor3('input_var')            # batch-size X sentences X 300
+        self.q_var = T.fmatrix('question_var')              # batch-size X 300
+        self.answer_var = T.ftensor3('answer_var')          # batch-size X multiple options X 300
         self.input_mask_var = T.imatrix('input_mask_var')
-        self.target = T.iscalar('target')
+        self.target = T.ivector('target')                   # batch-size ('single': word index,  'multi_choice': correct option)
         self.attentions = []
 
         #self.pe_matrix_in = self.pe_matrix(self.max_inp_sent_len)
@@ -245,9 +246,10 @@ class DMN_tied:
                                           self.W_mem_upd_in, self.W_mem_upd_hid, self.b_mem_upd,
                                           self.W_mem_hid_in, self.W_mem_hid_hid, self.b_mem_hid))
         
-        last_mem_raw = memory[-1].dimshuffle(('x', 0))
+        #last_mem_raw = memory[-1].dimshuffle(('x', 0))
+        last_mem_raw = memory[-1]
         
-        net = layers.InputLayer(shape=(1, self.dim), input_var=last_mem_raw)
+        net = layers.InputLayer(shape=(self.batch_size, self.dim), input_var=last_mem_raw)
         if self.dropout > 0 and self.mode == 'train':
             net = layers.DropoutLayer(net, p=self.dropout)
         last_mem = layers.get_output(net)[0]
@@ -257,7 +259,7 @@ class DMN_tied:
         
         if self.answer_module == 'feedforward':
             self.temp = T.dot(self.ans_reps, self.W_a)
-            self.prediction = nn_utils.softmax(T.dot(self.temp, last_mem))
+            self.prediction = nn_utils.softmax(T.batched_dot(self.temp, last_mem))
         
         elif self.answer_module == 'recurrent':
             self.W_ans_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim + self.vocab_size))
@@ -313,15 +315,14 @@ class DMN_tied:
         
         
         print "==> building loss layer and computing updates"
-        self.loss_ce = T.nnet.categorical_crossentropy(self.prediction.dimshuffle('x', 0), 
-                                                       T.stack([self.target]))[0]
+        self.loss_ce = T.nnet.categorical_crossentropy(self.prediction, self.target)
 
         if self.l2 > 0:
             self.loss_l2 = self.l2 * nn_utils.l2_reg(self.params)
         else:
             self.loss_l2 = 0
         
-        self.loss = self.loss_ce + self.loss_l2
+        self.loss = T.mean(self.loss_ce) + self.loss_l2
         
         #updates = lasagne.updates.adadelta(self.loss, self.params)
         #updates = lasagne.updates.adam(self.loss, self.params)
@@ -416,18 +417,21 @@ class DMN_tied:
         based on Kyle_Kastner's comment: https://news.ycombinator.com/item?id=11237125
         '''
         x_fwd = x
-        x_bwd = x[::-1]
+        x_fwd = x_fwd.dimshuffle(1, 0, 2)               # sentences X batch-size X 300
+        x_bwd = x_fwd
+        x_bwd = x_bwd[::-1]
+        tmp = theano.shared(np.zeros([self.batch_size, self.dim]))
 
         h_fwd_gru, _ = theano.scan(fn=self.bi_GRU_fwd, 
                     #sequences=self.inp_sent_reps,
                     sequences=x_fwd,
-                    outputs_info=T.zeros_like(self.b_inp_hid_fwd))
+                    outputs_info=T.zeros_like(tmp))
                     #outputs_info=T.zeros_like(self.W_inp_hid_hid))
 
         h_bwd_gru, _ = theano.scan(fn=self.bi_GRU_bwd, 
                     #sequences=self.inp_sent_reps,
                     sequences=x_bwd,
-                    outputs_info=T.zeros_like(self.b_inp_hid_bwd))
+                    outputs_info=T.zeros_like(tmp))
                     #outputs_info=T.zeros_like(self.W_inp_hid_hid))
 
         h_bwd_gru = h_bwd_gru[::-1]
@@ -451,7 +455,7 @@ class DMN_tied:
 
         h_t = h_bwd_gru + h_fwd_gru
 
-        return h_t 
+        return h_t         # sentences X batch-size X dim
 
     def episode_compute_z(self, fi, prev_g, mem, q_q):
         #euclid square version
@@ -460,9 +464,9 @@ class DMN_tied:
         #T.abs_ version
         #z = T.concatenate([fi * q_q, fi * mem, T.abs_(fi - q_q), T.abs_(fi - mem)])
 
-        l_1 = T.dot(self.W_1, z) + self.b_1
+        l_1 = T.dot(z, self.W_1.T) + self.b_1
         l_1 = T.tanh(l_1)
-        l_2 = T.dot(self.W_2, l_1) + self.b_2
+        l_2 = T.dot(l_1, self.W_2.T) + self.b_2
  
         exp_l_2 = T.exp(l_2)
 
@@ -470,12 +474,12 @@ class DMN_tied:
 
     def episode_compute_g(self, z_i, z_all):
         G = z_i/(T.sum(z_all, axis=0))
-        G = G[0]
+        #G = G[0]
         return G
 
     def episode_attend(self, x, g, h):
-        r = T.nnet.sigmoid(T.dot(self.W_mem_res_in, x) + T.dot(self.W_mem_res_hid, h) + self.b_mem_res)
-        _h = T.tanh(T.dot(self.W_mem_hid_in, x) + r * T.dot(self.W_mem_hid_hid, h) + self.b_mem_hid)
+        r = T.nnet.sigmoid(T.dot(x, self.W_mem_res_in.T) + T.dot(h, self.W_mem_res_hid.T) + self.b_mem_res)
+        _h = T.tanh(T.dot(x, self.W_mem_hid_in.T) + r * T.dot(h, self.W_mem_hid_hid.T) + self.b_mem_hid)
         #ht =  g * h + (1. - g) * _h
         ht =  g * _h + (1. - g) * h     #swapped version from paper that converges better for some reason
         return ht
@@ -499,9 +503,9 @@ class DMN_tied:
         W_hid_hid = U
         b_hid = b^h
         """
-        z = T.nnet.sigmoid(T.dot(W_upd_in, x) + T.dot(W_upd_hid, h) + b_upd)
-        r = T.nnet.sigmoid(T.dot(W_res_in, x) + T.dot(W_res_hid, h) + b_res)
-        _h = T.tanh(T.dot(W_hid_in, x) + r * T.dot(W_hid_hid, h) + b_hid)
+        z = T.nnet.sigmoid(T.dot(x, W_upd_in.T) + T.dot(h, W_upd_hid) + b_upd)
+        r = T.nnet.sigmoid(T.dot(x, W_res_in.T) + T.dot(h, W_res_hid) + b_res)
+        _h = T.tanh(T.dot(x, W_hid_in.T) + r * T.dot(h, W_hid_hid) + b_hid)
         #return z * h + (1. - z) * _h
         return z * _h + (1. - z) * h    #swapped version from paper that converges better for some reason
     
@@ -512,10 +516,11 @@ class DMN_tied:
                                      self.W_inp_hid_in, self.W_inp_hid_hid, self.b_inp_hid)
     
     def new_episode(self, mem):
+        tmp = theano.shared(np.zeros([self.batch_size, 1]))
         z, z_updates = theano.scan(fn=self.episode_compute_z,
             sequences=self.inp_c,
             non_sequences=[mem, self.q_q],
-            outputs_info=T.zeros_like(self.b_2))
+            outputs_info=T.zeros_like(tmp))
 
         g, g_updates = theano.scan(fn=self.episode_compute_g,
             sequences=z,
@@ -728,20 +733,27 @@ class DMN_tied:
             qinfo = self.test_qinfo
         else:
             raise Exception("Invalid mode")
+        
+        story_shape = inputs.values()[0].shape
+        num_ma_opts = answers.shape[1]
 
-        inp = inputs[qinfo[batch_index]['movie']]
-        q = qs[batch_index]
-        ans = answers[batch_index]
+        p_q = np.zeros((len(batch_idx), 300))                           # question input vector
+        target = np.zeros((len(batch_idx)))                             # answer (as a single number)
+        p_inp = np.zeros((len(batch_idx), story_shape[0], 300))         # story statements
+        p_ans = np.zeros((len(batch_idx), num_ma_opts, 300))            # multiple choice answers
+        #b_qinfo = []
         input_mask = input_masks
-        target = qinfo[batch_index]['correct_option']
-        p_inp = np.zeros((len(inp), 300))
-        p_ans = np.zeros((len(ans), 300))
-        p_q = np.zeros(300)
-        for i in range(len(inp)):
-            p_inp[i] = self.pos_encodings(inp[i])
-        for j in range(len(ans)):
-            p_ans[j] = self.pos_encodings(ans[j])
-        p_q = self.pos_encodings(q)
+        for b, bi in enumerate(batch_idx):
+            inp = inputs[qinfo[bi]['movie']]
+            q = qs[bi]
+            ans = answers[bi]
+            target[b] = qinfo[bi]['correct_option']
+            for i in range(len(inp)):
+                p_inp[b][i] = self.pos_encodings(inp[i])
+            for j in range(len(ans)):
+                p_ans[b][j] = self.pos_encodings(ans[j])
+            p_q[b] = self.pos_encodings(q)
+            #b_qinfo.append(qinfo[bi])
 
         ret = theano_fn(p_inp, p_q, p_ans, input_mask, target)
         param_norm = np.max([utils.get_norm(x.get_value()) for x in self.params])
