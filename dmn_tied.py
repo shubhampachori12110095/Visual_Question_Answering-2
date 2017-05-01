@@ -709,7 +709,7 @@ class DMN_tied:
         random.shuffle(combined)
         self.train_input, self.train_q, self.train_answer, self.train_input_mask = zip(*combined)    
     
-    def step(self, batch_index, mode):
+    def step(self, batch_idx, mode):
         if mode == "train" and self.mode == "test":
             raise Exception("Cannot train during test mode")
         
@@ -740,13 +740,13 @@ class DMN_tied:
         story_shape = inputs.values()[0].shape
         num_ma_opts = answers.shape[1]
 
-        p_q = np.zeros((len(self.batch_idx), 300))                           # question input vector
-        target = np.zeros((len(self.batch_idx)))                             # answer (as a single number)
-        p_inp = np.zeros((len(self.batch_idx), story_shape[0], 300))         # story statements
-        p_ans = np.zeros((len(self.batch_idx), num_ma_opts, 300))            # multiple choice answers
+        p_q = np.zeros((len(batch_idx), 300))                           # question input vector
+        target = np.zeros((len(batch_idx)))                             # answer (as a single number)
+        p_inp = np.zeros((len(batch_idx), story_shape[0], 300))         # story statements
+        p_ans = np.zeros((len(batch_idx), num_ma_opts, 300))            # multiple choice answers
         #b_qinfo = []
         input_mask = input_masks
-        for b, bi in enumerate(self.batch_idx):
+        for b, bi in enumerate(batch_idx):
             inp = inputs[qinfo[bi]['movie']]
             q = qs[bi]
             ans = answers[bi]
