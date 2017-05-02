@@ -167,9 +167,9 @@ class DMN_tied:
         #self.test_input, self.test_q, self.test_answer, self.test_input_mask = self._process_input(babi_test_raw)
         self.vocab_size = len(self.vocab)
 
-        self.input_var = T.ftensor3('input_var')            # batch-size X sentences X 300
-        self.q_var = T.fmatrix('question_var')              # batch-size X 300
-        self.answer_var = T.ftensor3('answer_var')          # batch-size X multiple options X 300
+        self.input_var = T.tensor3('input_var')            # batch-size X sentences X 300
+        self.q_var = T.matrix('question_var')              # batch-size X 300
+        self.answer_var = T.tensor3('answer_var')          # batch-size X multiple options X 300
         self.input_mask_var = T.imatrix('input_mask_var')
         self.target = T.ivector('target')                   # batch-size ('single': word index,  'multi_choice': correct option)
         self.attentions = []
@@ -259,7 +259,7 @@ class DMN_tied:
         
         if self.answer_module == 'feedforward':
             self.temp = T.dot(self.ans_reps, self.W_a)
-            self.prediction = nn_utils.softmax(T.batched_dot(self.temp, last_mem))
+            self.prediction = nn_utils.softmax(T.dot(self.temp, last_mem))
         
         elif self.answer_module == 'recurrent':
             self.W_ans_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim + self.vocab_size))
@@ -315,9 +315,9 @@ class DMN_tied:
         
         
         print "==> building loss layer and computing updates"
-        tmp= self.prediction.dimshuffle(2,0,1)
-        res, _ =theano.scan(fn = lambda inp: inp, sequences=tmp)
-        self.prediction = res[-1]
+        #tmp= self.prediction.dimshuffle(2,0,1)
+        #res, _ =theano.scan(fn = lambda inp: inp, sequences=tmp)
+        #self.prediction = res[-1]
         self.loss_ce = T.nnet.categorical_crossentropy(self.prediction, self.target)
 
         if self.l2 > 0:
@@ -336,14 +336,14 @@ class DMN_tied:
         self.attentions = T.stack(self.attentions)
         if self.mode == 'train':
             print "==> compiling train_fn"
-            self.train_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var, self.target], 
+            self.train_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.target], 
                                             outputs=[self.prediction, self.loss, self.attentions],
                                             updates=updates,
                                             on_unused_input='warn',
                                             allow_input_downcast=True)
         
         print "==> compiling test_fn"
-        self.test_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var, self.target],
+        self.test_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.target],
                                        outputs=[self.prediction, self.loss, self.attentions],
                                        on_unused_input='warn',
                                        allow_input_downcast=True)
@@ -484,6 +484,7 @@ class DMN_tied:
         r = T.nnet.sigmoid(T.dot(x, self.W_mem_res_in.T) + T.dot(h, self.W_mem_res_hid.T) + self.b_mem_res)
         _h = T.tanh(T.dot(x, self.W_mem_hid_in.T) + r * T.dot(h, self.W_mem_hid_hid.T) + self.b_mem_hid)
         #ht =  g * h + (1. - g) * _h
+        g = T.concatenate([g,] * self.dim, axis=1)
         ht =  g * _h + (1. - g) * h     #swapped version from paper that converges better for some reason
         return ht
 
@@ -758,7 +759,7 @@ class DMN_tied:
             p_q[b] = self.pos_encodings(q)
             #b_qinfo.append(qinfo[bi])
 
-        ret = theano_fn(p_inp, p_q, p_ans, input_mask, target)
+        ret = theano_fn(p_inp, p_q, p_ans, target)
         param_norm = np.max([utils.get_norm(x.get_value()) for x in self.params])
         
         return {"prediction": np.array([ret[0]]),

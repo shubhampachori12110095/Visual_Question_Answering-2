@@ -153,7 +153,8 @@ def do_epoch(mode, epoch, skipped=0):
                 y_true.append(x)
             
             for x in prediction.argmax(axis=1):
-                y_pred.append(x)
+                for y in x:
+                    y_pred.append(y)
             
             # TODO: save the state sometimes
             if (i % args.log_every == 0):
