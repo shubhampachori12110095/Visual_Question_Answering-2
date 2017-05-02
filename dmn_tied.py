@@ -365,7 +365,7 @@ class DMN_tied:
     def pos_encodings(self, statement):
         statement = self.LUT[statement]
         num_words = len(statement)
-        l = np.zeros(300)
+        l = np.zeros(300, dtype='float32')
         for j in range(num_words):
             for d in range(300):
                 l[d] = (1-(1.+j)/num_words)-((d+1.)/300)*(1-2*(1.+j)/num_words)
@@ -423,7 +423,7 @@ class DMN_tied:
         x_fwd = x_fwd.dimshuffle(1, 0, 2)               # sentences X batch-size X 300
         x_bwd = x_fwd
         x_bwd = x_bwd[::-1]
-        tmp = theano.shared(np.zeros([self.batch_size, self.dim]))
+        tmp = theano.shared(np.zeros([self.batch_size, self.dim], dtype='float32'))
 
         h_fwd_gru, _ = theano.scan(fn=self.bi_GRU_fwd, 
                     #sequences=self.inp_sent_reps,
@@ -520,7 +520,7 @@ class DMN_tied:
                                      self.W_inp_hid_in, self.W_inp_hid_hid, self.b_inp_hid)
     
     def new_episode(self, mem):
-        tmp = theano.shared(np.zeros([self.batch_size, 1]))
+        tmp = theano.shared(np.zeros([self.batch_size, 1], dtype='float32'))
         z, z_updates = theano.scan(fn=self.episode_compute_z,
             sequences=self.inp_c,
             non_sequences=[mem, self.q_q],
@@ -741,10 +741,10 @@ class DMN_tied:
         story_shape = inputs.values()[0].shape
         num_ma_opts = answers.shape[1]
 
-        p_q = np.zeros((len(batch_idx), 300))                           # question input vector
+        p_q = np.zeros((len(batch_idx), 300), dtype='float32')                           # question input vector
         target = np.zeros((len(batch_idx)))                             # answer (as a single number)
-        p_inp = np.zeros((len(batch_idx), story_shape[0], 300))         # story statements
-        p_ans = np.zeros((len(batch_idx), num_ma_opts, 300))            # multiple choice answers
+        p_inp = np.zeros((len(batch_idx), story_shape[0], 300), dtype='float32')         # story statements
+        p_ans = np.zeros((len(batch_idx), num_ma_opts, 300), dtype='float32')            # multiple choice answers
         #b_qinfo = []
         input_mask = input_masks
         for b, bi in enumerate(batch_idx):

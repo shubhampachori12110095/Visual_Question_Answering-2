@@ -65,14 +65,11 @@ def dmn_mid(args):
     #assert args.word_vector_size in [50, 100, 200, 300]
     print 'Evaluating Improved Dynamic Memory Networks on MovieQA using: %s' % args.story_source
 
-    network_name = args.prefix + '%s.mh%d.n%d.bs%d%s%s%s' % (
+    network_name = args.prefix + '%s.mh%d.%s.bs%d' % (
         args.network, 
         args.memory_hops, 
-        args.dim, 
-        args.batch_size, 
-        ".na" if args.normalize_attention else "", 
-        ".bn" if args.batch_norm else "", 
-        (".d" + str(args.dropout)) if args.dropout>0 else "")
+        args.story_source, 
+        args.batch_size)
     
     # Get list of MAs and movies
     mqa = MovieQA.DataLoader()
@@ -200,7 +197,7 @@ def dmn_finish(args, network_name, dmn):
             if test_acc > max_acc[1]:
                 max_acc[0] = epoch
                 max_acc[1] = test_acc
-            state_name = 'states/%s.epoch%d.test%.5f.state' % (network_name, epoch, epoch_loss)
+            state_name = 'states/%s.epoch%d.test%.5f.acc%.4f.state' % (network_name, epoch, epoch_loss, test_acc)
             
             if (epoch % args.save_every == 0):    
                 print "==> saving ... %s" % state_name
