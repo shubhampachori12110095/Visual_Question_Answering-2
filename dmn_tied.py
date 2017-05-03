@@ -762,8 +762,8 @@ class DMN_tied:
         ret = theano_fn(p_inp, p_q, p_ans, target)
         param_norm = np.max([utils.get_norm(x.get_value()) for x in self.params])
         
-        return {"prediction": np.array([ret[0]]),
-                "answers": np.array([target]),
+        return {"prediction": np.array(ret[0]),
+                "answers": np.array(target),
                 "current_loss": ret[1],
                 "skipped": 0,
                 "log": "pn: %.3f" % param_norm,
