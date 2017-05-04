@@ -20,10 +20,10 @@ def dmn_start():
     parser = argparse.ArgumentParser()
     parser.add_argument('--story_source', type=str, default="split_plot", help='story source text: split_plot | dvs | subtitle | script | video')
     parser.add_argument('--learning_rate', type=float, default="0.001", help='set learning rate')
-    parser.add_argument('--network', type=str, default="dmn_tied", help='embeding size (50, 100, 200, 300 only)')
-    parser.add_argument('--word_vector_size', type=int, default=300, help='embeding size (50, 100, 200, 300 only)')
-    parser.add_argument('--sent_vector_size', type=int, default=300, help='embeding size (50, 100, 200, 300 only)')
-    parser.add_argument('--dim', type=int, default=300, help='number of hidden units in input module GRU')
+    parser.add_argument('--network', type=str, default="dmn_tied", help='dmn_tied or dmn_untied')
+    parser.add_argument('--word_vector_size', type=int, default=300, help='your word embeding size')
+    parser.add_argument('--sent_vector_size', type=int, default=300, help='your sentence embeding size or image feature size')
+    parser.add_argument('--dim', type=int, default=300, help='dimension of hidden units in input module GRU')
     parser.add_argument('--epochs', type=int, default=100, help='number of epochs')
     parser.add_argument('--load_state', type=str, default="", help='state file path')
     parser.add_argument('--answer_module', type=str, default="feedforward", help='answer module type: feedforward or recurrent')
@@ -86,9 +86,14 @@ def dmn_mid(args):
     args_dict = dict(args._get_kwargs())
     args_dict['stories'] = stories
     args_dict['QAs'] = QAs
+
     if args.story_source == 'video':
-        with open('video_features.json') as f:
-            story_v = json.load(f)
+        d_path = '/home/jwk/Documents/Visual_Question_Answering/video_feature/'
+        s_list = os.listdir(d_path)
+        s_name = [k[:-4] for k in s_list]
+        story_v = {}
+        for s_idx, s_v in enumerate(s_list):
+            story_v[s_name[s_idx]] = np.load(d_path + s_v)
         args_dict['story_v'] = story_v
     #args_dict['babi_train_raw'] = babi_train_raw
     #args_dict['babi_test_raw'] = babi_test_raw
@@ -99,14 +104,20 @@ def dmn_mid(args):
         #if (args.batch_size != 1):
             #print "==> not using minibatch training in this mode"
             #args.batch_size = 1
-        dmn = dmn_tied.DMN_tied(**args_dict)
+        if args.story_source != 'video':
+            dmn = dmn_tied.DMN_tied(**args_dict)
+        else:
+            dmn = dmn_tied_v.DMN_tied(**args_dict)
 
     elif args.network == 'dmn_untied':
         import dmn_untied
         #if (args.batch_size != 1):
             #print "==> not using minibatch training in this mode"
             #args.batch_size = 1
-        dmn = dmn_untied.DMN_untied(**args_dict)
+        if args.story_source != 'video':
+            dmn = dmn_untied.DMN_untied(**args_dict)
+        else:
+            dmn = dmn_untied_v.DMN_untied(**args_dict)
         
     else:
         raise Exception("No such network known: " + args.network)

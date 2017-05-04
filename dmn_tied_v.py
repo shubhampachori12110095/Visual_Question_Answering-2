@@ -50,7 +50,7 @@ class DMN_tied:
         i2v = {v:k for k,v in v2i.iteritems()}
         self.vocab = v2i
         self.ivocab = i2v
-        
+        self.story_v = story_v
         self.word2vec = w2v_model
         self.word_vector_size = word_vector_size
         self.sent_vector_size = sent_vector_size
@@ -107,14 +107,15 @@ class DMN_tied:
         with open('train_split.json') as fid:
             trdev = json.load(fid)
 
-        s_key = story_v.keys()
+        s_key = self.story_v.keys()
         self.train_range = [k for k, qi in enumerate(qinfo) if (qi['movie'] in trdev['train'] and qi['qid'] in s_key)]
         self.train_val_range   = [k for k, qi in enumerate(qinfo) if (qi['movie'] in trdev['dev'] and qi['qid'] in s_key)]
         self.val_range = [k for k, qi in enumerate(val_qinfo) if qi['qid'] in s_key]
         
-        self.train_input = story_v
-        self.train_val_input = story_v
-        self.test_input = story_v
+        self.max_sent_len = max([sty.shape[0] for sty in self.story_v.values()])
+        self.train_input = self.story_v
+        self.train_val_input = self.story_v
+        self.test_input = self.story_v
         self.train_q = train_questionM
         self.train_answer = train_answerM
         self.train_qinfo = train_qinfo
@@ -563,141 +564,8 @@ class DMN_tied:
             loaded_params = dict['params']
             for (x, y) in zip(self.params, loaded_params):
                 x.set_value(y)
-
-    def _process_input(self, data_raw):
-        max_inp_sent_len = 0.
-        max_inp_num_sents = 0.
-        max_q_len = 0.
-        self.max_fact_count = 0.
-        for x in data_raw:
-
-            #this splits it into sentences
-            sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
-            x["C"] = sent_detector.tokenize(x["C"])
-            
-            inp = []
-            for i in range(len(x["C"])): 
-                inp.append(x["C"][i].lower().split(' ')) 
-                inp[i] = [w for w in inp[i] if len(w) > 0]
-                max_inp_sent_len = max(max_inp_sent_len, len(inp[i]))
-
-            q = x["Q"].lower().split(' ')
-            q = [w for w in q if len(w) > 0]
-            
-            if (self.input_mask_mode == 'word'):
-                fact_count = len(inp)
-            elif (self.input_mask_mode == 'sentence'):
-                fact_count = len([0 for w in inp if w == '.'])
-            else:
-                raise Exception("unknown input_mask_mode")
-            
-            max_inp_num_sents = max(max_inp_num_sents, len(inp))
-            max_q_len = max(max_q_len, len(q))
-            self.max_fact_count = max(self.max_fact_count, fact_count)
-
-        questions = []
-        inputs = []
-        answers = []
-        input_masks = []
-        for x in data_raw:
-
-            #sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
-            #x["C"] = sent_detector.tokenize(x["C"])
-            
-            inp = []
-            for i in range(len(x["C"])): 
-                inp.append(x["C"][i].lower().split(' ')) 
-                inp[i] = [w for w in inp[i] if len(w) > 0]
-            q = x["Q"].lower().split(' ')
-            q = [w for w in q if len(w) > 0]
-            
-            inp_vector = []
-            for i in range(len(inp)):            
-                
-                inp_i = [utils.process_word(word = inp[i][w], 
-                                            word2vec = self.word2vec, 
-                                            vocab = self.vocab, 
-                                            ivocab = self.ivocab, 
-                                            word_vector_size = self.word_vector_size, 
-                                            to_return = "index") for w in range(len(inp[i]))]
-
-                inp_vector.append(inp_i)
-
-                #is this still needed?
-                while(len(inp_vector[i]) < max_inp_sent_len):
-                    inp_vector[i].append(0)
-                #'''
-
-                '''
-                #VERSION FOR IF YOU SCRAP SENTENCE ENCODER 
-                while(len(inp_vector[i]) < 80):
-                    inp_vector[i].append(0)
-                #'''
-            
-            #'''
-            #is this still needed?
-            while (len(inp_vector) < max_inp_num_sents):
-                inp_vector.append([0] * (max_inp_sent_len))
-            #'''
-
-            '''
-            #VERSION FOR IF YOU SCRAP SENTENCE ENCODER 
-            while (len(inp_vector) < max_inp_num_sents):
-                inp_vector.append([0] * (80))
-            #'''
-                                        
-            q_vector = [utils.process_word(word = q[w], 
-                                        word2vec = self.word2vec, 
-                                        vocab = self.vocab, 
-                                        ivocab = self.ivocab, 
-                                        word_vector_size = self.word_vector_size, 
-                                        to_return = "index") for w in range(len(q))]
-                                        
-            '''
-            q_vector = [utils.process_word(word = w, 
-                                        word2vec = self.word2vec, 
-                                        vocab = self.vocab, 
-                                        ivocab = self.ivocab, 
-                                        word_vector_size = self.word_vector_size, 
-                                        to_return = "word2vec") for w in q]
-                                        '''
-
-            while(len(q_vector) < max_q_len):
-                q_vector.append(0)
-
-
-            inputs.append(inp_vector)
-            questions.append(q_vector)
-
-            answers.append(utils.process_word(word = x["A"], 
-                                            word2vec = self.word2vec, 
-                                            vocab = self.vocab, 
-                                            ivocab = self.ivocab, 
-                                            word_vector_size = self.word_vector_size, 
-                                            to_return = "index"))
-
-            # NOTE: here we assume the answer is one word! 
-            if self.input_mask_mode == 'word':
-                input_masks.append(np.array([index for index, w in enumerate(inp)], dtype=np.float32)) 
-            elif self.input_mask_mode == 'sentence': 
-                input_masks.append(np.array([index for index, w in enumerate(inp) if w == '.'], dtype=np.float32)) 
-            else:
-                raise Exception("invalid input_mask_mode")
-
-        '''#THIS TURN ON ONE HOT ENCODER
-        #inputs = utils.one_hot_encoding(s, self.sent_vector_size, embedding_size)
-        inputs = utils.one_hot_encoding_trip(inputs, vocab_size, max_inp_sent_len)
-        questions = utils.one_hot_encoding_doub(questions, vocab_size, max_q_len)   
-        #'''
-
-        inputs = np.array(inputs).astype(floatX)
-        questions = np.array(questions).astype(floatX)
-
-        self.max_inp_sent_len = max_inp_sent_len
-        self.max_q_len = max_q_len
-
-        return inputs, questions, answers, input_masks
     
+
     def get_batches_per_epoch(self, mode):
         if (mode == 'train'):
             return len(self.train_input)
@@ -740,22 +608,21 @@ class DMN_tied:
         else:
             raise Exception("Invalid mode")
         
-        story_shape = inputs.values()[0].shape
         num_ma_opts = answers.shape[1]
 
-        p_q = np.zeros((len(batch_idx), 300), dtype='float32')                           # question input vector
-        target = np.zeros((len(batch_idx)))                             # answer (as a single number)
-        p_inp = np.zeros((len(batch_idx), story_shape[0], 300), dtype='float32')         # story statements
-        p_ans = np.zeros((len(batch_idx), num_ma_opts, 300), dtype='float32')            # multiple choice answers
+        p_q = np.zeros((len(batch_idx), 300), dtype='float32')                                      # question input vector
+        target = np.zeros((len(batch_idx)))                                                         # answer (as a single number)
+        p_inp = np.zeros((len(batch_idx), self.max_sent_len, self.sent_vector_size), dtype='float32')  # story statements
+        p_ans = np.zeros((len(batch_idx), num_ma_opts, 300), dtype='float32')                       # multiple choice answers
         #b_qinfo = []
         input_mask = input_masks
         for b, bi in enumerate(batch_idx):
-            inp = inputs[qinfo[bi]['movie']]
+            inp = inputs[qinfo[bi]['qid']]
             q = qs[bi]
             ans = answers[bi]
             target[b] = qinfo[bi]['correct_option']
             for i in range(len(inp)):
-                p_inp[b][i] = self.pos_encodings(inp[i])
+                p_inp[b][i] = inp[i]
             for j in range(len(ans)):
                 p_ans[b][j] = self.pos_encodings(ans[j])
             p_q[b] = self.pos_encodings(q)
