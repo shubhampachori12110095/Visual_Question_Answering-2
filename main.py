@@ -75,7 +75,10 @@ def dmn_mid(args):
     mqa = MovieQA.DataLoader()
 
     ### Process story source
-    stories, QAs = mqa.get_story_qa_data('full', args.story_source)
+    if args.story_source != 'video':
+        stories, QAs = mqa.get_story_qa_data('full', args.story_source)
+    else:
+        stories, QAs = mqa.get_story_qa_data('full', 'split_plot')
     stories = normalize_documents(stories)
     
     #babi_train_raw, babi_test_raw = utils.get_babi_raw(args.babi_id, args.babi_test_id)
