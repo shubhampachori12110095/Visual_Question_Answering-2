@@ -110,6 +110,7 @@ def dmn_mid(args):
         if args.story_source != 'video':
             dmn = dmn_tied.DMN_tied(**args_dict)
         else:
+            import dmn_tied_v
             dmn = dmn_tied_v.DMN_tied(**args_dict)
 
     elif args.network == 'dmn_untied':
@@ -120,6 +121,7 @@ def dmn_mid(args):
         if args.story_source != 'video':
             dmn = dmn_untied.DMN_untied(**args_dict)
         else:
+            import dmn_untied_v
             dmn = dmn_untied_v.DMN_untied(**args_dict)
         
     else:
