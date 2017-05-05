@@ -71,7 +71,7 @@ def dmn_mid(args):
         args.story_source, 
         args.batch_size,
         args.learning_rate)
-    
+    os.mkdir('states/'+network_name)
     # Get list of MAs and movies
     mqa = MovieQA.DataLoader()
 
@@ -218,7 +218,7 @@ def dmn_finish(args, network_name, dmn):
             if test_acc > max_acc[1]:
                 max_acc[0] = epoch
                 max_acc[1] = test_acc
-            state_name = 'states/%s.epoch%d.test%.5f.acc%.4f.state' % (network_name, epoch, epoch_loss, test_acc)
+            state_name = 'states/%s/epoch%d.test%.5f.acc%.4f.state' % (network_name, epoch, epoch_loss, test_acc)
             
             if (epoch % args.save_every == 0):    
                 print "==> saving ... %s" % state_name
