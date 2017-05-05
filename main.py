@@ -65,11 +65,12 @@ def dmn_mid(args):
     #assert args.word_vector_size in [50, 100, 200, 300]
     print 'Evaluating Improved Dynamic Memory Networks on MovieQA using: %s' % args.story_source
 
-    network_name = args.prefix + '%s.mh%d.%s.bs%d' % (
+    network_name = args.prefix + '%s.mh%d.%s.bs%d.lr%f' % (
         args.network, 
         args.memory_hops, 
         args.story_source, 
-        args.batch_size)
+        args.batch_size,
+        args.learning_rate)
     
     # Get list of MAs and movies
     mqa = MovieQA.DataLoader()
@@ -213,7 +214,7 @@ def dmn_finish(args, network_name, dmn):
             #epoch_loss_train, skipped = do_epoch('train', epoch, skipped)
             
             epoch_loss, skipped, test_acc = do_epoch('train_val', epoch, skipped)
-            acc_list.append([epoch, train_acc, test_acc])
+            acc_list.append([epoch, train_acc, test_acc, epoch_loss])
             if test_acc > max_acc[1]:
                 max_acc[0] = epoch
                 max_acc[1] = test_acc
@@ -228,7 +229,7 @@ def dmn_finish(args, network_name, dmn):
         log_name = './acc_log_' + args.network + '_' + args.story_source + '_' + str(args.learning_rate) + '.txt'
         with open(log_name, 'w') as f_log:
             for acc in acc_list:
-                output = str(acc[0]) + '\t' + str(acc[1]) + '\t' + str(acc[2]) + '\n'
+                output = str(acc[0]) + '\t' + str(acc[1]) + '\t' + str(acc[2]) + '\t' + str(acc[3]) + '\n'
                 f_log.write(output)
             f_log.write('max: '+str(max_acc[0])+'\t'+str(max_acc[1]))
 
