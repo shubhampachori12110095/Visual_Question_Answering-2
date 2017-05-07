@@ -29,7 +29,7 @@ floatX = theano.config.floatX
 
 class DMN_untied:
     
-    def __init__(self, stories, QAs, learning_rate, word_vector_size, sent_vector_size, 
+    def __init__(self, stories, QAs, batch_size, learning_rate, word_vector_size, sent_vector_size, 
                 dim, mode, answer_module, input_mask_mode, memory_hops, l2, 
                 normalize_attention, batch_norm, dropout, dropout_in, **kwargs):
 
@@ -55,6 +55,7 @@ class DMN_untied:
         self.word_vector_size = word_vector_size
         self.sent_vector_size = sent_vector_size
         self.dim = dim
+        self.batch_size = batch_size
         self.mode = mode
         self.answer_module = answer_module
         self.input_mask_mode = input_mask_mode
@@ -165,11 +166,11 @@ class DMN_untied:
         #self.test_input, self.test_q, self.test_answer, self.test_input_mask = self._process_input(babi_test_raw)
         self.vocab_size = len(self.vocab)
 
-        self.input_var = T.fmatrix('input_var')
-        self.q_var = T.fvector('question_var')
-        self.answer_var = T.fmatrix('answer_var')
+        self.input_var = T.tensor3('input_var')
+        self.q_var = T.matrix('question_var')
+        self.answer_var = T.tensor3('answer_var')
         self.input_mask_var = T.imatrix('input_mask_var')
-        self.target = T.iscalar('target')
+        self.target = T.ivector('target')
         self.attentions = []
 
         #self.pe_matrix_in = self.pe_matrix(self.max_inp_sent_len)
@@ -249,9 +250,9 @@ class DMN_untied:
                                           self.W_mem_upd_in[self.mem_weight_num], self.W_mem_upd_hid[self.mem_weight_num], self.b_mem_upd[self.mem_weight_num],
                                           self.W_mem_hid_in[self.mem_weight_num], self.W_mem_hid_hid[self.mem_weight_num], self.b_mem_hid[self.mem_weight_num]))
         
-        last_mem_raw = memory[-1].dimshuffle(('x', 0))
+        last_mem_raw = memory[-1]
         
-        net = layers.InputLayer(shape=(1, self.dim), input_var=last_mem_raw)
+        net = layers.InputLayer(shape=(self.batch_size, self.dim), input_var=last_mem_raw)
         if self.dropout > 0 and self.mode == 'train':
             net = layers.DropoutLayer(net, p=self.dropout)
         last_mem = layers.get_output(net)[0]
@@ -317,33 +318,32 @@ class DMN_untied:
         
         
         print "==> building loss layer and computing updates"
-        self.loss_ce = T.nnet.categorical_crossentropy(self.prediction.dimshuffle('x', 0), 
-                                                       T.stack([self.target]))[0]
+        self.loss_ce = T.nnet.categorical_crossentropy(self.prediction, self.target)
 
         if self.l2 > 0:
             self.loss_l2 = self.l2 * nn_utils.l2_reg(self.params)
         else:
             self.loss_l2 = 0
         
-        self.loss = self.loss_ce + self.loss_l2
+        self.loss = T.mean(self.loss_ce) + self.loss_l2
         
         #updates = lasagne.updates.adadelta(self.loss, self.params)
         #updates = lasagne.updates.adam(self.loss, self.params)
-        updates = lasagne.updates.adam(self.loss, self.params, learning_rate=0.001, beta1=0.5) #from DCGAN paper
+        updates = lasagne.updates.adam(self.loss, self.params, learning_rate=self.learning_rate, beta1=0.5) #from DCGAN paper
         #updates = lasagne.updates.adadelta(self.loss, self.params, learning_rate=0.0005)
         #updates = lasagne.updates.momentum(self.loss, self.params, learning_rate=0.0003)
         
         self.attentions = T.stack(self.attentions)
         if self.mode == 'train':
             print "==> compiling train_fn"
-            self.train_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var, self.target], 
+            self.train_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.target], 
                                             outputs=[self.prediction, self.loss, self.attentions],
                                             updates=updates,
                                             on_unused_input='warn',
                                             allow_input_downcast=True)
         
         print "==> compiling test_fn"
-        self.test_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.input_mask_var, self.target],
+        self.test_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var, self.target],
                                        outputs=[self.prediction, self.loss, self.attentions],
                                        on_unused_input='warn',
                                        allow_input_downcast=True)
@@ -419,18 +419,21 @@ class DMN_untied:
         based on Kyle_Kastner's comment: https://news.ycombinator.com/item?id=11237125
         '''
         x_fwd = x
-        x_bwd = x[::-1]
+        x_fwd = x_fwd.dimshuffle(1, 0, 2)               # sentences X batch-size X 300
+        x_bwd = x_fwd
+        x_bwd = x_bwd[::-1]
+        tmp = theano.shared(np.zeros([self.batch_size, self.dim], dtype='float32'))
 
         h_fwd_gru, _ = theano.scan(fn=self.bi_GRU_fwd, 
                     #sequences=self.inp_sent_reps,
                     sequences=x_fwd,
-                    outputs_info=T.zeros_like(self.b_inp_hid_fwd))
+                    outputs_info=T.zeros_like(tmp))
                     #outputs_info=T.zeros_like(self.W_inp_hid_hid))
 
         h_bwd_gru, _ = theano.scan(fn=self.bi_GRU_bwd, 
                     #sequences=self.inp_sent_reps,
                     sequences=x_bwd,
-                    outputs_info=T.zeros_like(self.b_inp_hid_bwd))
+                    outputs_info=T.zeros_like(tmp))
                     #outputs_info=T.zeros_like(self.W_inp_hid_hid))
 
         h_bwd_gru = h_bwd_gru[::-1]
@@ -458,14 +461,14 @@ class DMN_untied:
 
     def episode_compute_z(self, fi, prev_g, mem, q_q):
         #euclid square version
-        z = T.concatenate([fi * q_q, fi * mem, (fi - q_q) ** 2, (fi - mem) ** 2])
+        z = T.concatenate([fi * q_q, fi * mem, (fi - q_q) ** 2, (fi - mem) ** 2], axis=1)
         
         #T.abs_ version
         #z = T.concatenate([fi * q_q, fi * mem, T.abs_(fi - q_q), T.abs_(fi - mem)])
 
-        l_1 = T.dot(self.W_1[self.mem_weight_num], z) + self.b_1[self.mem_weight_num]
+        l_1 = T.dot(z, self.W_1[self.mem_weight_num].T) + self.b_1[self.mem_weight_num]
         l_1 = T.tanh(l_1)
-        l_2 = T.dot(self.W_2[self.mem_weight_num], l_1) + self.b_2[self.mem_weight_num]
+        l_2 = T.dot(l_1, self.W_2[self.mem_weight_num].T) + self.b_2[self.mem_weight_num]
 
         exp_l_2 = T.exp(l_2)
 
@@ -473,13 +476,14 @@ class DMN_untied:
 
     def episode_compute_g(self, z_i, z_all):
         G = z_i/(T.sum(z_all, axis=0))
-        G = G[0]
+        #G = G[0]
         return G
 
     def episode_attend(self, x, g, h):
-        r = T.nnet.sigmoid(T.dot(self.W_mem_res_in[self.mem_weight_num], x) + T.dot(self.W_mem_res_hid[self.mem_weight_num], h) + self.b_mem_res[self.mem_weight_num])
-        _h = T.tanh(T.dot(self.W_mem_hid_in[self.mem_weight_num], x) + r * T.dot(self.W_mem_hid_hid[self.mem_weight_num], h) + self.b_mem_hid[self.mem_weight_num])
+        r = T.nnet.sigmoid(T.dot(x, self.W_mem_res_in[self.mem_weight_num].T) + T.dot(h, self.W_mem_res_hid[self.mem_weight_num].T) + self.b_mem_res[self.mem_weight_num])
+        _h = T.tanh(T.dot(x, self.W_mem_hid_in[self.mem_weight_num].T) + r * T.dot(h, self.W_mem_hid_hid[self.mem_weight_num].T) + self.b_mem_hid[self.mem_weight_num])
         #ht =  g * h + (1. - g) * _h
+        g = T.concatenate([g,] * self.dim, axis=1)
         ht =  g * _h + (1. - g) * h     #swapped version from paper that converges better for some reason
         return ht
 
@@ -501,9 +505,9 @@ class DMN_untied:
         W_hid_hid = U
         b_hid = b^h
         """
-        z = T.nnet.sigmoid(T.dot(W_upd_in, x) + T.dot(W_upd_hid, h) + b_upd)
-        r = T.nnet.sigmoid(T.dot(W_res_in, x) + T.dot(W_res_hid, h) + b_res)
-        _h = T.tanh(T.dot(W_hid_in, x) + r * T.dot(W_hid_hid, h) + b_hid)
+        z = T.nnet.sigmoid(T.dot(x, W_upd_in.T) + T.dot(h, W_upd_hid) + b_upd)
+        r = T.nnet.sigmoid(T.dot(x, W_res_in.T) + T.dot(h, W_res_hid) + b_res)
+        _h = T.tanh(T.dot(x, W_hid_in.T) + r * T.dot(h, W_hid_hid) + b_hid)
         #return z * h + (1. - z) * _h
         return z * _h + (1. - z) * h    #swapped version from paper that converges better for some reason
     
@@ -514,10 +518,11 @@ class DMN_untied:
                                      self.W_inp_hid_in, self.W_inp_hid_hid, self.b_inp_hid)
     
     def new_episode(self, mem):
+        tmp = theano.shared(np.zeros([self.batch_size, 1], dtype='float32'))
         z, z_updates = theano.scan(fn=self.episode_compute_z,
             sequences=self.inp_c,
             non_sequences=[mem, self.q_q],
-            outputs_info=T.zeros_like(self.b_2[0]))
+            outputs_info=T.zeros_like(tmp))
 
         g, g_updates = theano.scan(fn=self.episode_compute_g,
             sequences=z,
@@ -733,25 +738,32 @@ class DMN_untied:
         else:
             raise Exception("Invalid mode")
             
-        inp = inputs[qinfo[batch_index]['movie']]
-        q = qs[batch_index]
-        ans = answers[batch_index]
-        input_mask = input_masks
-        target = qinfo[batch_index]['correct_option']
-        p_inp = np.zeros((len(inp), 300))
-        p_ans = np.zeros((len(ans), 300))
-        p_q = np.zeros(300)
-        for i in range(len(inp)):
-            p_inp[i] = self.pos_encodings(inp[i])
-        for j in range(len(ans)):
-            p_ans[j] = self.pos_encodings(ans[j])
-        p_q = self.pos_encodings(q)
+        story_shape = inputs.values()[0].shape
+        num_ma_opts = answers.shape[1]
 
-        ret = theano_fn(p_inp, p_q, p_ans, input_mask, target)
+        p_q = np.zeros((len(batch_idx), 300), dtype='float32')                           # question input vector
+        target = np.zeros((len(batch_idx)))                             # answer (as a single number)
+        p_inp = np.zeros((len(batch_idx), story_shape[0], 300), dtype='float32')         # story statements
+        p_ans = np.zeros((len(batch_idx), num_ma_opts, 300), dtype='float32')            # multiple choice answers
+        #b_qinfo = []
+        input_mask = input_masks
+        for b, bi in enumerate(batch_idx):
+            inp = inputs[qinfo[bi]['movie']]
+            q = qs[bi]
+            ans = answers[bi]
+            target[b] = qinfo[bi]['correct_option']
+            for i in range(len(inp)):
+                p_inp[b][i] = self.pos_encodings(inp[i])
+            for j in range(len(ans)):
+                p_ans[b][j] = self.pos_encodings(ans[j])
+            p_q[b] = self.pos_encodings(q)
+            #b_qinfo.append(qinfo[bi])
+
+        ret = theano_fn(p_inp, p_q, p_ans, target)
         param_norm = np.max([utils.get_norm(x.get_value()) for x in self.params])
         
-        return {"prediction": np.array([ret[0]]),
-                "answers": np.array([target]),
+        return {"prediction": np.array(ret[0]),
+                "answers": np.array(target),
                 "current_loss": ret[1],
                 "skipped": 0,
                 "log": "pn: %.3f" % param_norm,
