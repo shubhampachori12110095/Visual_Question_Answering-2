@@ -710,7 +710,7 @@ class DMN_untied:
         random.shuffle(combined)
         self.train_input, self.train_q, self.train_answer, self.train_input_mask = zip(*combined)    
     
-    def step(self, batch_index, mode):
+    def step(self, batch_idx, mode):
         if mode == "train" and self.mode == "test":
             raise Exception("Cannot train during test mode")
         
