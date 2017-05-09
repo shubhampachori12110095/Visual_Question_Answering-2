@@ -71,7 +71,8 @@ def dmn_mid(args):
         args.story_source, 
         args.batch_size,
         args.learning_rate)
-    os.mkdir('states/'+network_name)
+    if args.mode == 'train':
+        os.mkdir('states/'+network_name)
     # Get list of MAs and movies
     mqa = MovieQA.DataLoader()
 
